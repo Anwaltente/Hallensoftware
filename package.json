@@ -1,0 +1,21 @@
+{
+  "name": "hallen-os",
+  "version": "1.0.0",
+  "description": "HALLE//OS: Werkstatt- und Hallen-Management im Look eines 2D Top-Down Werkstattspiels (Event-Planer, Packliste, Hallen-Map, Lager, Wartungsheft, Blueprint).",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "reset-db": "node server.js --reset"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "express": "^4.21.2",
+    "multer": "^2.0.0"
+  },
+  "license": "UNLICENSED"
+}

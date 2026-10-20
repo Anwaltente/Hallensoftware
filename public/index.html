@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#0a0d12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>HALLE//OS · Werkstatt-Management</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0d12'/%3E%3Cpath d='M6 26V12l10-6 10 6v14' fill='none' stroke='%2322d3ee' stroke-width='3'/%3E%3Crect x='11' y='17' width='10' height='9' fill='%23facc15'/%3E%3C/svg%3E">
+
+  <!-- Schriften -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Permanent+Marker&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { ink: '#0a0d12', panel: '#10151d' },
+          fontFamily: { display: ['Chakra Petch', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="/style.css">
+  <!-- Büro-/Enterprise-Ansicht: Design-Overrides, aktiv sobald <html class="biz"> -->
+  <link rel="stylesheet" href="/biz.css">
+  <script>
+    // Gemerkte Ansicht sofort setzen (kein Aufblitzen des Spiel-Looks beim Laden)
+    try {
+      if (localStorage.getItem('halle.view') === 'biz') {
+        document.documentElement.classList.add('biz');
+        document.title = 'Fleet & Resource Management Portal';
+      }
+    } catch (e) { /* privates Fenster */ }
+  </script>
+</head>
+<body data-mobile-view="map" class="overflow-hidden">
+
+  <div id="app" class="h-[100dvh] flex flex-col">
+    <!-- ============ Kopfzeile ============ -->
+    <header class="tread h-14 shrink-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 border-b border-white/10 relative z-20">
+      <div class="flex items-center gap-2.5 mr-1">
+        <div class="game-only w-8 h-8 rounded-md hazard-anim ring-1 ring-black/60 shadow-[0_0_14px_rgba(250,204,21,.35)]"></div>
+        <div class="biz-only biz-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+        <div class="leading-none hidden sm:block">
+          <div class="game-only font-display font-bold tracking-[0.18em] text-white text-[15px]">HALLE<span class="text-cyan-300">//</span>OS</div>
+          <div id="hallName" class="game-only text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-0.5 hidden sm:block">Werkstatt-Management</div>
+          <div class="biz-only biz-brand">Fleet &amp; Resource Management Portal <span>v2.4</span></div>
+          <div class="biz-only biz-brand-sub">Operations · Asset Control</div>
+        </div>
+      </div>
+
+      <div class="mode-switch game-only" role="tablist" aria-label="Ansicht">
+        <button data-mode="hall" class="on"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3z"/></svg><span class="hidden sm:inline"><span class="game-only">Halle</span><span class="biz-only">Übersicht</span></span></button>
+        <button data-mode="blueprint" class="bp-btn"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h8l-1 8 10-12h-8z"/></svg><span class="hidden sm:inline"><span class="game-only">Blueprint</span><span class="biz-only">Versorgung</span></span></button>
+      </div>
+
+      <button id="spotlightBtn" class="hidden md:flex items-center gap-2 flex-1 max-w-sm min-w-[7.5rem] ml-2 px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-slate-500 text-sm hover:border-cyan-400/50 hover:text-slate-300 transition">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <span class="flex-1 text-left truncate whitespace-nowrap">Teil, Box, Auto, Aufgabe suchen …</span>
+        <kbd>Strg</kbd><kbd>K</kbd>
+      </button>
+      <button id="spotlightBtnMobile" class="md:hidden btn-icon ml-auto" title="Suche"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button>
+
+      <div id="liveTicker" class="hidden min-[1800px]:flex items-center gap-2 text-xs text-lime-200/90 min-w-0 flex-1 justify-center truncate"></div>
+
+      <div class="flex items-center gap-1.5 md:ml-auto">
+        <!-- v4: HUD (kritischer Mangel, Dinge in der Schwebe, Schnell-Verbrauch, Ton an/aus). Am Handy: #hudDock unten -->
+        <div id="hud" class="hud hidden lg:flex"></div>
+        <!-- v2: Low-Stock-Alarm (Kühlschrank-Radar) -->
+        <button id="supplyAlert" class="hidden supply-alert" title="Vorräte fast leer"></button>
+        <!-- v2: QR-Scanner -->
+        <button id="scanBtn" class="btn-icon scan-btn" title="QR-Code scannen"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="4" height="4"/><rect x="13" y="13" width="4" height="4"/><path d="M13 7h4v2M7 15v2h2"/></svg></button>
+        <button id="adminBtn" class="hidden btn btn-sm" title="Admin-Konsole">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <span class="hidden sm:inline">Admin</span>
+        </button>
+        <button id="userChip" class="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full bg-black/40 border border-white/10 hover:border-white/25 transition" title="Profil, Ansicht (Alt+B) und Abmelden" aria-haspopup="menu"></button>
+      </div>
+    </header>
+
+    <!-- ============ Hauptbereich ============ -->
+    <main class="flex-1 flex min-h-0 relative">
+      <!-- Whiteboard (links) -->
+      <aside id="leftPanel" class="side-panel lg:static flex w-[340px] shrink-0 flex-col border-r border-white/10 bg-panel"></aside>
+
+      <!-- Hallen-Map -->
+      <section id="mapWrap" class="relative flex-1 min-w-0 overflow-hidden flex flex-col">
+        <!-- v2: LED-Laufband mit Event-Countdown -->
+        <div id="ledTicker" class="shrink-0 game-only"></div>
+        <!-- Büro-Ansicht: Arbeitsbereich mit Stellplatzmatrix, Inventar, Materialentnahme, Projekten (ersetzt den Hallenplan) -->
+        <div id="bizWorkspace" class="biz-only flex-1 min-h-0 overflow-y-auto"></div>
+
+        <div id="mapArea" class="relative flex-1 min-h-0 game-map">
+        <canvas id="mapCanvas"></canvas>
+
+        <!-- Overlay: Werkzeugleisten -->
+        <div id="mapTopBar" class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 pointer-events-none"></div>
+
+        <!-- Overlay: Legende -->
+        <div id="mapLegend" class="hidden sm:block absolute left-3 top-3 z-10 glass rounded-lg px-3 py-2 text-[11px] text-slate-300 select-none"></div>
+
+        <!-- Overlay: Zoom -->
+        <div class="absolute right-3 bottom-3 z-10 flex flex-col gap-1 glass rounded-lg p-1">
+          <button class="btn-icon" data-zoom="in" title="Hineinzoomen"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg></button>
+          <button class="btn-icon" data-zoom="out" title="Herauszoomen"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg></button>
+          <button class="btn-icon" data-zoom="fit" title="Alles zeigen"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+        </div>
+
+        <!-- Overlay: Auswahl (Tap-to-Move) -->
+        <div id="selectionBar" class="hidden absolute left-1/2 -translate-x-1/2 bottom-16 lg:bottom-4 z-20"></div>
+
+        <!-- Overlay: Builder-/Blueprint-Eigenschaften -->
+        <div id="propsPanel" class="hidden absolute right-3 top-28 z-20 w-[290px] max-h-[calc(100%-8.5rem)] overflow-y-auto glass rounded-xl p-4"></div>
+        </div>
+      </section>
+
+      <!-- Seitenleiste (rechts) -->
+      <aside id="rightPanel" class="side-panel lg:static flex w-[400px] shrink-0 flex-col border-l border-white/10 bg-panel">
+        <nav class="tabs px-2 border-b border-white/10 shrink-0" id="rightTabs">
+          <button class="tab active" data-tab="events">Events</button>
+          <button class="tab" data-tab="lager">Lager</button>
+          <button class="tab" data-tab="tools">Werkzeug</button>
+          <button class="tab" data-tab="fleet">Fuhrpark</button>
+          <button class="tab" data-tab="trailers">Anhänger</button>
+        </nav>
+        <div id="rightContent" class="flex-1 overflow-y-auto"></div>
+      </aside>
+    </main>
+
+    <!-- v4: HUD-Dock am Handy (Schnell-Verbrauch, liegt rum, Ton, kritischer Mangel) -->
+    <div id="hudDock" class="shrink-0 relative z-40"></div>
+
+    <!-- ============ Mobile Navigation ============ -->
+    <nav id="mobileNav" class="lg:hidden h-16 shrink-0 tread border-t border-white/10 flex items-stretch px-1 pb-[env(safe-area-inset-bottom)] relative z-40">
+      <button class="mnav-btn active" data-view="map"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span class="game-only">Halle</span><span class="biz-only">Plätze</span></button>
+      <button class="mnav-btn" data-view="board"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="1"/><path d="M8 21l4-4 4 4M6 8h8M6 12h5"/></svg><span class="game-only">Board</span><span class="biz-only">Aufgaben</span></button>
+      <button class="mnav-btn" data-view="events"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Events</button>
+      <button class="mnav-btn" data-view="lager"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/></svg>Lager</button>
+      <button class="mnav-btn" data-view="tools"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Werkzeug</button>
+      <button class="mnav-btn" data-view="fleet"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13l2-6a2 2 0 0 1 2-1.4h10A2 2 0 0 1 19 7l2 6v4H3z"/></svg>Autos</button>
+      <button class="mnav-btn" data-view="trailers"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="15" height="9" rx="1"/><path d="M17 12h5M6 19a2 2 0 1 0 0-.1M13 19a2 2 0 1 0 0-.1"/></svg><span class="game-only">Hänger</span><span class="biz-only">Anhänger</span></button>
+    </nav>
+  </div>
+
+  <!-- Login-Overlay, Modals, Toasts -->
+  <div id="loginRoot"></div>
+  <div id="modalRoot"></div>
+  <div id="toastRoot"></div>
+
+  <noscript><p style="padding:2rem;color:#fff">HALLE//OS benötigt JavaScript.</p></noscript>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

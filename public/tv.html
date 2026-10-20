@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#050608">
+  <title>HALLE//OS · Hallen-TV</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0d12'/%3E%3Cpath d='M6 26V12l10-6 10 6v14' fill='none' stroke='%2322d3ee' stroke-width='3'/%3E%3Crect x='11' y='17' width='10' height='9' fill='%23facc15'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/tv.css">
+</head>
+<body>
+  <!-- Hallen-TV: läuft ohne Maus, wechselt automatisch die Screens (Konfiguration in der Admin-Konsole) -->
+  <div class="tv">
+    <header class="tv-top">
+      <div class="tv-brand"><span class="tv-hazard"></span><div><b>HALLE<i>//</i>OS</b><small id="hallName">Hallen-TV</small></div></div>
+      <nav class="tv-dots" id="dots"></nav>
+      <div class="tv-clock"><b id="clock">--:--</b><small id="date"></small></div>
+    </header>
+    <div class="tv-progress"><span id="progress"></span></div>
+    <!-- v4: roter Alarmstreifen bei kritischem Mangel (über allen Screens) -->
+    <div class="tv-alarm" id="alarm" hidden></div>
+
+    <main class="tv-stage" id="stage">
+      <section class="tv-screen" data-screen="tasks"></section>
+      <section class="tv-screen" data-screen="event"></section>
+      <section class="tv-screen" data-screen="stock"></section>
+      <section class="tv-screen" data-screen="hall"></section>
+      <div class="tv-msg" id="message" hidden></div>
+    </main>
+
+    <footer class="tv-led"><div class="tv-led-track" id="ledTrack"></div></footer>
+  </div>
+  <script type="module" src="/tv.js"></script>
+</body>
+</html>
