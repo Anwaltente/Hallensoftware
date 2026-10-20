@@ -11,11 +11,33 @@ import { html, setHTML, el, on, icon, toast, toastError, haptic, fmtDate, confir
 
 const CAMBER_X = 3;  // Darstellung überhöht, damit -1° schon sichtbar ist
 const TOE_X = 8;
+// v5.2: Spur in Millimetern (Summe je Achse). Grafik: Winkel je Rad proportional zur halben Achs-Spur, stark überhöht
+const TOE_MM_X = 4;          // Grad Darstellung je mm Spur pro Rad
+const TOE_MM_MAX = 22;       // Grafik begrenzen
+const fmtMm = (v, digits = 1) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? 'k. A.'
+  : `${Number(v) > 0 ? '+' : ''}${Number(v).toFixed(digits).replace('.', ',')} mm`);
+/** Felgendurchmesser in mm aus den Rad-Specs ("8,5x18 ET35" -> 18 Zoll), sonst 17 Zoll */
+function rimDiameterMm(vehicle) {
+  for (const w of (vehicle && vehicle.wheel_specs) || []) {
+    const m = String(w.rim || '').match(/[x×]\s*(\d{2})(?:[.,]\d)?\b/i) || String(w.tire || '').match(/R\s?(\d{2})\b/i);
+    if (m) return Number(m[1]) * 25.4;
+  }
+  return 17 * 25.4;
+}
+/** Alte Spurwerte in Grad (je Rad) in mm je Achse umrechnen: mm = Felgendurchmesser × tan(Winkel), links + rechts */
+function legacyToeMm(setup, vehicle) {
+  const t = setup && setup.data && setup.data.toe;
+  if (!t || !['fl', 'fr', 'rl', 'rr'].some((k) => Number(t[k]))) return null;
+  const D = rimDiameterMm(vehicle);
+  const mm = (deg) => D * Math.tan((Number(deg) || 0) * Math.PI / 180);
+  const r1 = (x) => Math.round(x * 10) / 10;
+  return { front: r1(mm(t.fl) + mm(t.fr)), rear: r1(mm(t.rl) + mm(t.rr)), inch: Math.round(D / 25.4) };
+}
 const CLICKS_MAX = 24;
 
 const DEFAULTS = {
   camber: { fl: -3, fr: -3, rl: -0.5, rr: -0.5 },
-  toe: { fl: 0, fr: 0, rl: 0.1, rr: 0.1 },
+  toe: { fl: 0, fr: 0, rl: 0, rr: 0 },   // alt (Grad), nur noch zum Umrechnen alter Setups; neu: toe_front_mm / toe_rear_mm
   caster: { fl: 7, fr: 7 },
   pressure: { cold: { fl: 2.2, fr: 2.2, rl: 2.0, rr: 2.0 }, warm: { fl: 2.6, fr: 2.6, rl: 2.4, rr: 2.4 } },
   steering: { kit: '', lock: 55, ackermann: 'parallel' },
@@ -114,6 +136,23 @@ export async function renderSetupTab(content, { vehicle }) {
 
   let current = setups.find((s) => s.is_current) || setups[0] || null;
   let data = deepMerge(DEFAULTS, current ? current.data : {});
+  // v5.2: Spur in mm (Spalten toe_front_mm / toe_rear_mm); alte Setups mit Gradwerten werden zur Anzeige umgerechnet
+  let toe = {};
+  const loadToe = () => {
+    if (current && (current.toe_front_mm !== null && current.toe_front_mm !== undefined || current.toe_rear_mm !== null && current.toe_rear_mm !== undefined)) {
+      toe = { front: current.toe_front_mm, rear: current.toe_rear_mm, converted: null };
+    } else if (current) {
+      const c = legacyToeMm(current, vehicle);
+      toe = c ? { front: c.front, rear: c.rear, converted: c.inch } : { front: null, rear: null, converted: null };
+    } else toe = { front: 0, rear: 1, converted: null };
+  };
+  loadToe();
+  const toeNow = () => {
+    const f = root.querySelector('[name="toe_front_mm"]');
+    const r = root.querySelector('[name="toe_rear_mm"]');
+    const n = (el2, fb) => { if (!el2) return fb; const v = String(el2.value).replace(',', '.').trim(); return v === '' ? null : Number(v); };
+    return { front: n(f, toe.front), rear: n(r, toe.rear) };
+  };
   let axle = 'front';
   let steer = false;
 
@@ -144,7 +183,7 @@ export async function renderSetupTab(content, { vehicle }) {
         <div class="space-y-3 game-only">
           <div class="geo-panel"><div class="geo-title">FRONTANSICHT · STURZ <span>Darstellung ${CAMBER_X}× überhöht</span></div>${{ __raw: frontView() }}</div>
           <div class="grid sm:grid-cols-[1.4fr_1fr] gap-3">
-            <div class="geo-panel"><div class="geo-title">DRAUFSICHT · SPUR <span>${TOE_X}× überhöht</span></div>${{ __raw: topView() }}</div>
+            <div class="geo-panel"><div class="geo-title">DRAUFSICHT · SPUR IN MM <span data-toesum>stark überhöht</span></div>${{ __raw: topView() }}</div>
             <div class="space-y-3">
               <div class="geo-panel"><div class="geo-title">NACHLAUF</div>${{ __raw: sideView() }}</div>
               <div class="geo-panel p-3 space-y-2 text-[11px]" data-dampers></div>
@@ -161,7 +200,13 @@ export async function renderSetupTab(content, { vehicle }) {
             <label><span class="label">Strecke</span><input class="input text-sm" name="track" value="${current ? current.track || '' : ''}" ${canEdit() ? '' : 'disabled'}></label>
           </div>
           <section class="geo-section"><h4>Sturz (Camber)</h4>${quad('camber', '', { step: 0.1, unit: '°' })}</section>
-          <section class="geo-section"><h4>Spur (Toe) <span>+ = Vorspur · − = Nachspur</span></h4>${quad('toe', '', { step: 0.05, unit: '°' })}</section>
+          <section class="geo-section"><h4>Spur (Toe) in mm <span>Summe je Achse · + = Vorspur · − = Nachspur</span></h4>
+            <div class="grid grid-cols-2 gap-1.5">
+              <label><span class="label">Spur vorn</span><div class="relative"><input class="input !py-1.5 font-mono text-sm !pr-9" type="number" step="0.1" name="toe_front_mm" value="${toe.front ?? ''}" ${canEdit() ? '' : 'disabled'}><span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500">mm</span></div></label>
+              <label><span class="label">Spur hinten</span><div class="relative"><input class="input !py-1.5 font-mono text-sm !pr-9" type="number" step="0.1" name="toe_rear_mm" value="${toe.rear ?? ''}" ${canEdit() ? '' : 'disabled'}><span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500">mm</span></div></label>
+            </div>
+            ${toe.converted ? html`<p class="text-[11px] text-amber-300 mt-1.5">${icon('alert', 'w-3 h-3 inline')} Aus den alten Gradwerten umgerechnet (${toe.converted}-Zoll-Felge). Bitte prüfen und speichern.</p>` : ''}
+          </section>
           <section class="geo-section"><h4>Nachlauf & Lenkung</h4>
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               ${field('caster.fl', 'Nachlauf VL', { unit: '°' })}${field('caster.fr', 'Nachlauf VR', { unit: '°' })}
@@ -203,7 +248,7 @@ export async function renderSetupTab(content, { vehicle }) {
               ${s.is_current ? html`<span class="chip !text-[10px] !text-lime-200 !border-lime-400/40">aktuell</span>` : ''}
             </div>
             <div class="text-amber-300 text-sm mt-1">${'★'.repeat(s.rating || 0)}<span class="text-slate-700">${'★'.repeat(5 - (s.rating || 0))}</span></div>
-            <div class="text-[11px] text-slate-400 font-mono mt-1">Sturz ${num(s.data.camber && s.data.camber.fl).toFixed(1)}° / ${num(s.data.camber && s.data.camber.rl).toFixed(1)}° · Lenkw. ${s.data.steering ? s.data.steering.lock : '?'}°</div>
+            <div class="text-[11px] text-slate-400 font-mono mt-1">Sturz ${num(s.data.camber && s.data.camber.fl).toFixed(1)}° / ${num(s.data.camber && s.data.camber.rl).toFixed(1)}° · Lenkw. ${s.data.steering ? s.data.steering.lock : '?'}°${s.toe_front_mm !== null && s.toe_front_mm !== undefined ? ` · Spur ${fmtMm(s.toe_front_mm)} / ${fmtMm(s.toe_rear_mm)}` : ''}</div>
             ${s.notes ? html`<div class="text-[11px] text-slate-500 mt-1 line-clamp-2">${s.notes}</div>` : ''}
             <div class="flex gap-1.5 mt-2">
               <button class="btn btn-sm flex-1" data-load="${s.id}">Laden</button>
@@ -221,7 +266,7 @@ export async function renderSetupTab(content, { vehicle }) {
     const f = root.querySelector('[data-setupform]');
     const next = clone(data);
     f.querySelectorAll('[name]').forEach((inp) => {
-      if (['title', 'event_id', 'track', 'notes'].includes(inp.name)) return;
+      if (['title', 'event_id', 'track', 'notes', 'toe_front_mm', 'toe_rear_mm'].includes(inp.name)) return;
       const isText = inp.type !== 'number';
       setPath(next, inp.name, isText ? inp.value : (inp.value === '' ? '' : num(inp.value)));
     });
@@ -259,7 +304,7 @@ export async function renderSetupTab(content, { vehicle }) {
           <tbody>
             <tr class="zone"><td colspan="8">Achsgeometrie</td></tr>
             ${quadRow('Sturz', '°', d.camber, 2, 0.3)}
-            ${quadRow('Spur', '°', d.toe, 2, 0.05)}
+            ${(() => { const tm = toeNow(); return html`<tr><td>Spur gesamt <span class="muted">(+ Vorspur)</span></td><td class="muted">mm</td><td class="num" colspan="2">${fmtMm(tm.front)}</td><td class="num" colspan="2">${fmtMm(tm.rear)}</td><td class="num muted">-</td><td></td></tr>`; })()}
             <tr><td>Nachlauf</td><td class="muted">°</td><td class="num">${v(d.caster.fl, 1)}</td><td class="num">${v(d.caster.fr, 1)}</td><td class="num muted">-</td><td class="num muted">-</td>${diff(d.caster.fl, d.caster.fr, 0.5, 1)}</tr>
             <tr class="zone"><td colspan="8">Reifenfülldruck</td></tr>
             ${quadRow('Fülldruck kalt', 'bar', d.pressure.cold, 2, 0.1)}
@@ -272,7 +317,7 @@ export async function renderSetupTab(content, { vehicle }) {
             ${rowAxle('Fahrzeughöhe', 'mm', d.rideHeight.front, d.rideHeight.rear)}
           </tbody>
         </table></div>
-        <div class="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-100">Toleranz Seitendifferenz: Sturz ±0,30°, Spur ±0,05°, Nachlauf ±0,50°, Fülldruck ±0,10 bar. Werte werden im Formular rechts gepflegt.</div>
+        <div class="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-100">Toleranz Seitendifferenz: Sturz ±0,30°, Nachlauf ±0,50°, Fülldruck ±0,10 bar. Spur in mm als Summe je Achse (Spalten vorn/hinten). Werte werden im Formular rechts gepflegt.</div>
       </div>`);
   }
 
@@ -294,15 +339,19 @@ export async function renderSetupTab(content, { vehicle }) {
 
     const lock = num(d.steering.lock);
     const ack = { pro: 0.82, parallel: 1, anti: 1.12 }[d.steering.ackermann] || 1;
+    const tm = toeNow();
     for (const k of ['fl', 'fr', 'rl', 'rr']) {
-      const toe = num(d.toe[k]);
-      let rot = (k.endsWith('l') ? 1 : -1) * toe * TOE_X;
+      const axleMm = k.startsWith('f') ? tm.front : tm.rear;
+      const perWheel = Number.isFinite(Number(axleMm)) && axleMm !== null ? Number(axleMm) / 2 : 0;   // je Rad die halbe Achs-Spur
+      let rot = (k.endsWith('l') ? 1 : -1) * Math.max(-TOE_MM_MAX, Math.min(TOE_MM_MAX, perWheel * TOE_MM_X));
       // Lenkeinschlag nach links: kurveninneres Rad (links) voll, äußeres je nach Ackermann
       if (steer && k.startsWith('f')) rot += -(k === 'fl' ? lock : lock * ack * 0.82);
       q(`[data-tw="${k}"]`).style.transform = `rotate(${rot}deg)`;
-      q(`[data-toe="${k}"]`).textContent = fmt(toe, 2);
+      q(`[data-toe="${k}"]`).textContent = axleMm === null || axleMm === undefined ? 'k. A.' : fmtMm(perWheel, 2);
       q(`[data-psi="${k}"]`).textContent = `${num(d.pressure.cold[k]).toFixed(1)} → ${num(d.pressure.warm[k]).toFixed(1)} bar`;
     }
+    const sum = root.querySelector('[data-toesum]');
+    if (sum) sum.textContent = `gesamt vorn ${fmtMm(tm.front)} · hinten ${fmtMm(tm.rear)}`;
     const cas = (num(d.caster.fl) + num(d.caster.fr)) / 2;
     q('[data-caster]').style.transform = `rotate(${cas}deg)`;
     q('[data-caster-val]').textContent = `${cas.toFixed(1)}°`;
@@ -318,6 +367,7 @@ export async function renderSetupTab(content, { vehicle }) {
     setups = await get(`/vehicles/${vehicle.id}/setups`);
     current = setups.find((s) => s.id === selectId) || setups.find((s) => s.is_current) || setups[0] || null;
     data = deepMerge(DEFAULTS, current ? current.data : {});
+    loadToe();
     rating = current ? current.rating || 0 : 0;
     render();
   }
@@ -339,6 +389,7 @@ export async function renderSetupTab(content, { vehicle }) {
   on(root, 'click', '[data-load]', (_e, b) => {
     current = setups.find((s) => s.id === Number(b.dataset.load));
     data = deepMerge(DEFAULTS, current.data);
+    loadToe();
     rating = current.rating || 0;
     render();
     toast(`Setup „${current.title}“ geladen.`);
@@ -356,7 +407,8 @@ export async function renderSetupTab(content, { vehicle }) {
     data = readForm();
     const payload = {
       vehicle_id: vehicle.id, title: f.title.value || 'Setup', event_id: f.event_id.value || null, track: f.track.value,
-      notes: f.notes.value, rating: rating || null, data, is_current: b.dataset.save === 'new' ? !setups.length : undefined
+      notes: f.notes.value, rating: rating || null, data, is_current: b.dataset.save === 'new' ? !setups.length : undefined,
+      toe_front_mm: f.toe_front_mm.value, toe_rear_mm: f.toe_rear_mm.value   // v5.2: Spur in mm
     };
     try {
       const saved = b.dataset.save === 'update' && current ? await put(`/setups/${current.id}`, payload) : await post('/setups', payload);

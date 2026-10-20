@@ -161,8 +161,30 @@ function listFloating() {
   return [...floats, ...borrowed].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
 }
 
+/** v5.2: Werkzeug außer Haus, mit Überfälligkeit (Tage seit dem vereinbarten Rückgabedatum) */
+function listLent() {
+  const { today, daysBetween } = require('./util');
+  const t = today();
+  return db.prepare(`SELECT t.id, t.name, t.lent_to, t.lent_at, t.lent_due, t.lent_note, t.location_text, t.level, lo.code AS shelf_code, b.label AS box_label
+    FROM tools t LEFT JOIN layout_objects lo ON lo.id = t.shelf_id LEFT JOIN boxes b ON b.id = t.box_id
+    WHERE t.lent_to IS NOT NULL ORDER BY COALESCE(t.lent_due, '9999-12-31'), t.lent_at`).all().map((r) => {
+    const overdueDays = r.lent_due && r.lent_due < t ? daysBetween(r.lent_due, t) : 0;
+    const days = r.lent_at ? Math.max(0, daysBetween(String(r.lent_at).slice(0, 10), t)) : 0;
+    return {
+      ...r,
+      days,
+      overdue: overdueDays > 0,
+      overdue_days: overdueDays,
+      due_in: r.lent_due && !overdueDays ? daysBetween(t, r.lent_due) : null,
+      home: r.shelf_code ? `Regal ${r.shelf_code}${r.level ? ` · E${r.level}` : ''}${r.box_label ? ` · ${r.box_label}` : ''}` : (r.location_text || null),
+      text: overdueDays > 0 ? `Überfällig: ${r.name} bei ${r.lent_to} seit ${overdueDays} ${overdueDays === 1 ? 'Tag' : 'Tagen'}!` : `${r.name} bei ${r.lent_to}`
+    };
+  });
+}
+
 /** Kompakte Daten für HUD, Ticker und Hallen-TV */
 function hudData() {
+  const lent = listLent();
   const cons = listConsumables();
   const floating = listFloating();
   const r = radar();
@@ -175,8 +197,10 @@ function hudData() {
     radarNew: r.filter((x) => !x.onList).length,
     shoppingOpen: db.prepare("SELECT COUNT(*) AS n FROM shopping_list WHERE status = 'open'").get().n,
     floating: floating.map((f) => ({ id: f.id, kind: f.kind, ref_id: f.ref_id || null, source: f.source, label: f.label, spot: f.spot, object_id: f.object_id || null, vehicle_id: f.vehicle_id || null, vehicle_slot_id: f.vehicle_slot_id || null, user_name: f.user_name, created_at: f.created_at })),
-    floatCount: floating.length
+    floatCount: floating.length,
+    lent,                 // v5.2: Werkzeug außer Haus
+    overdue: lent.filter((l) => l.overdue).length
   };
 }
 
-module.exports = { radar, shoppingListRows, fmtQty, parseSteps, serializeConsumable, listConsumables, critText, buySuggestion, shoppingList, listFloating, homeOf, hudData, round };
+module.exports = { listLent, radar, shoppingListRows, fmtQty, parseSteps, serializeConsumable, listConsumables, critText, buySuggestion, shoppingList, listFloating, homeOf, hudData, round };

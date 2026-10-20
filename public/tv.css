@@ -137,3 +137,96 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .float-li { display: flex; align-items: center; gap: 1vw; padding: 1.1vh 1vw; border-radius: 1vh; background: rgba(251,191,36,.07); border-left: .6vh solid #fbbf24; margin-bottom: .9vh; }
 .float-li .t { flex: 1; font-size: 2.1vh; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .float-li .w { font-size: 1.7vh; color: #fcd34d; white-space: nowrap; }
+
+/* ======================================================================
+   v5.2: Eigene Dashboard-Seiten (Baukasten)
+   Raster: dl-1x1, dl-split, dl-split-h, dl-3col, dl-2x2, dl-main-side, dl-3x2
+   Widgets skalieren mit ihrer Kachel (Container-Einheiten cqh/cqw, Fallback vh)
+   ====================================================================== */
+.tv-grid { grid-auto-rows: minmax(0, 1fr); }
+.dl-1x1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.dl-split { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.dl-split-h { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+.dl-3col { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 1fr; }
+.dl-2x2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.dl-main-side { grid-template-columns: 1.6fr 1fr; grid-template-rows: 1fr 1fr; }
+.dl-main-side > :first-child { grid-row: span 2; }
+.dl-3x2 { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 1fr 1fr; }
+
+.w-cell { container-type: size; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.w-cell .h { font-size: 2vh; font-size: clamp(1.2vh, 6cqh, 2.6vh); margin-bottom: 1.2vh; flex-shrink: 0; }
+.w-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.w-empty { margin: auto; text-align: center; font-family: var(--display); font-size: 3vh; font-size: clamp(1.8vh, 8cqh, 5vh); color: #475569; }
+.w-empty.ok { color: var(--lime); text-shadow: 0 0 2vh rgba(163,230,53,.4); }
+.w-sub { font-family: var(--display); font-size: 1.6vh; letter-spacing: .25em; text-transform: uppercase; color: var(--muted); margin: 1.2vh 0 .8vh; }
+.w-more { font-size: 1.7vh; color: var(--muted); padding: .6vh .4vw; }
+.w-cell.w-alarm { border-color: rgba(244,63,94,.75); box-shadow: 0 0 0 1px rgba(244,63,94,.4) inset; animation: glowRed 1.6s infinite; }
+.w-cell .work { padding: 1.2vh 1vw; margin-bottom: 1vh; }
+.w-cell .avatar { width: 6vh; height: 6vh; font-size: 2.3vh; }
+.w-cell .work b { font-size: 2.4vh; }
+.w-cell .work span { font-size: 1.8vh; }
+.w-cell .task { padding: 1vh .9vw; }
+.w-cell .task .t { font-size: 2vh; font-size: clamp(1.5vh, 5.5cqh, 2.4vh); }
+
+/* Event */
+.w-ev-name { font-family: var(--display); font-weight: 700; font-size: 5vh; font-size: clamp(2.4vh, 12cqh, 8vh); line-height: 1.15; padding-bottom: .1em; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.w-ev-meta { font-size: 2vh; font-size: clamp(1.4vh, 5cqh, 2.4vh); color: var(--muted); margin-top: .6vh; }
+.w-cd { padding: 1.5vh 0; justify-content: flex-start; }
+.w-cd .cd-unit b { font-size: 8vh; font-size: min(13cqh, 8cqw); padding: .8vh .7vw; }
+.w-cd .cd-unit i { font-size: 1.5vh; font-size: clamp(1vh, 4cqh, 2vh); }
+.w-cd .cd-sep { font-size: min(11cqh, 5cqw); padding-bottom: 5cqh; }
+.w-pack { display: flex; align-items: center; gap: 1vw; font-family: var(--display); font-size: 2vh; color: var(--muted); }
+.w-pack .bar { flex: 1; height: 2.4vh; }
+.w-pack b { font-size: 3.6vh; color: #fff; }
+.w-chips { display: flex; flex-wrap: wrap; gap: .8vh .5vw; margin-top: 1.4vh; }
+
+/* Mangel-Radar */
+.sh-li { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 1vw; align-items: baseline; padding: 1vh 1vw; border-radius: 1vh; margin-bottom: .8vh; background: rgba(255,255,255,.03); border-left: .6vh solid #475569; }
+.sh-li .t { font-size: 2.2vh; font-size: clamp(1.5vh, 6cqh, 2.6vh); font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-li b { font-family: var(--mono); font-size: 2.8vh; font-size: clamp(1.8vh, 8cqh, 3.6vh); grid-row: span 2; align-self: center; }
+.sh-li small { font-size: 1.5vh; color: var(--muted); }
+.sh-li.crit { border-color: var(--rose); background: rgba(225,29,72,.16); }
+.sh-li.crit b { color: #fda4af; }
+.sh-li.warn { border-color: var(--amber); }
+.sh-li.warn b { color: var(--amber); }
+.sh-li.drink { border-color: #38bdf8; }
+.sh-li.drink b { color: #7dd3fc; }
+
+/* Werkzeug-Radar */
+.w-count { display: flex; gap: 1.6vw; flex-wrap: wrap; font-size: 1.8vh; color: var(--muted); margin-bottom: 1.2vh; }
+.w-count b { font-family: var(--mono); font-size: 3.4vh; color: #fff; margin-right: .4vw; }
+.w-count .od, .w-count .od b { color: #fb7185; }
+.tl-li, .od-li { display: flex; flex-direction: column; padding: 1vh 1vw; border-radius: 1vh; margin-bottom: .8vh; border-left: .6vh solid #fbbf24; background: rgba(251,191,36,.07); }
+.tl-li .t, .od-li .t { font-size: 2.1vh; font-size: clamp(1.5vh, 6cqh, 2.5vh); font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-li .w, .od-li .w { font-size: 1.7vh; color: #fcd34d; }
+.tl-li.lent { border-color: #a78bfa; background: rgba(139,92,246,.1); }
+.tl-li.lent .w { color: #c4b5fd; }
+.tl-li.od, .od-li { border-color: #f43f5e; background: rgba(225,29,72,.22); animation: glowRed 1.2s infinite; }
+.tl-li.od .w, .od-li .w { color: #fecdd3; }
+.tl-li.od .t { color: #fff; text-shadow: 0 0 1vh #f43f5e; }
+
+/* Halle */
+.w-hall { display: flex; gap: 1.5vw; height: 100%; min-height: 0; }
+.w-hall .hallmap { height: 100%; max-height: none; flex: 1; min-width: 0; }
+.w-hall-side { display: flex; flex-direction: column; gap: 1.5vh; width: 32%; }
+.w-hall-side .stat { padding: 1.6vh 1vw; }
+.w-hall-side .num { font-size: 6vh; font-size: clamp(3vh, 16cqh, 9vh); }
+
+/* Banner */
+.wt-banner .w-body { justify-content: center; }
+.w-banner-text { font-family: var(--display); font-weight: 700; text-align: center; color: #fff; font-size: 5vh; font-size: clamp(2.2vh, 14cqh, 9vh); line-height: 1.15; margin: auto; padding: 0 1vw; max-height: 100%; overflow-wrap: anywhere; }
+.w-banner-run { overflow: hidden; display: flex; align-items: center; height: 100%; }
+.w-banner-run .tv-led-track span { font-size: 6vh; font-size: clamp(2.5vh, 30cqh, 10vh); }
+.wt-banner.tone-warn { border-color: rgba(255,176,0,.6); background: linear-gradient(180deg, rgba(255,176,0,.16), rgba(255,176,0,.04)); }
+.wt-banner.tone-warn .w-banner-text { color: #fde68a; }
+.wt-banner.tone-alarm { border-color: #fb7185; background: linear-gradient(180deg, rgba(225,29,72,.35), rgba(127,29,29,.2)); animation: glowRed 1.4s infinite; }
+.wt-banner.tone-ok { border-color: rgba(163,230,53,.5); background: linear-gradient(180deg, rgba(163,230,53,.12), rgba(163,230,53,.03)); }
+.wt-banner.tone-ok .w-banner-text { color: #d9f99d; }
+
+/* Wetter */
+.w-weather { margin: auto; text-align: center; }
+.w-weather .temp { font-family: var(--mono); font-weight: 700; color: #fff; font-size: 10vh; font-size: clamp(4vh, 30cqh, 14vh); line-height: 1; }
+.w-weather small { font-size: 1.9vh; color: var(--muted); }
+.w-weather .days { display: flex; gap: 1vw; justify-content: center; margin-top: 1.6vh; }
+.w-weather .day { text-align: center; background: rgba(255,255,255,.04); border-radius: 1.2vh; padding: 1vh 1vw; font-size: 1.7vh; }
+.w-weather .day b { display: block; font-size: 2.4vh; color: #fff; }

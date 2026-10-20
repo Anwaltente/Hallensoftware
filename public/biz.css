@@ -422,7 +422,25 @@ html:not(.biz) .bz-menu hr { border-color: rgba(255,255,255,.1); }
 .bz-proto .bz-table th { position: static; }
 .bz-proto caption { caption-side: top; text-align: left; font-size: .75rem; color: #64748b; padding: 0 0 .4rem; }
 
-html.biz #supplyAlert { display: none !important; }   /* steckt in "Bedarf (n)" */
+html.biz #supplyAlert { display: none !important; }
+/* v5.2 */
+html.biz .dash-grid { background: #f8fafc; border-color: var(--line); }
+html.biz .dash-cell { background: #fff; border-color: var(--line); }
+html.biz .dash-mini i { background: #cbd5e1; }
+html.biz .dash-lay { border-color: var(--line); color: #475569; }
+html.biz .dash-lay.on { border-color: #2563eb; color: #1d4ed8; background: #eff6ff; }
+html.biz .dash-lay.on .dash-mini i { background: #2563eb; }
+html.biz .bp-layer { color: #334155; }
+html.biz .tool-lent { border-color: #c4b5fd !important; background: #f5f3ff !important; }
+html.biz .tool-od { border-color: #fca5a5 !important; background: #fef2f2 !important; }
+html.biz .tool-overdue { background: #fef2f2; color: #991b1b; border-color: #fca5a5; }
+html.biz .chip-alarm { background: #fef2f2 !important; color: #b91c1c !important; border-color: #fca5a5 !important; }
+html.biz .hud-od { background: #fef2f2; color: #b91c1c; border-color: #fca5a5; }
+html.biz .qs-tile { background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+html.biz .qs-tile::before { display: none; }
+html.biz .qs-tile .k { font-family: var(--font-body); letter-spacing: .02em; color: #64748b; }
+html.biz .qs-tile .v, html.biz .qs-press b { font-family: var(--font-body); color: #0f172a; font-weight: 600; }
+html.biz .qs-tile .s { color: #475569; }   /* steckt in "Bedarf (n)" */
 
 @media print {
   html.biz .bz-tabs, html.biz .bz-filter { display: none !important; }

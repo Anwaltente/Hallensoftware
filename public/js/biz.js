@@ -410,11 +410,14 @@ function inventoryRows() {
   });
   tools.forEach((t) => {
     const floating = fl.has(`tool:${t.id}`);
-    const st = t.wishlist ? ['Beschaffung geplant', 'grey'] : t.borrowed_by ? [`Ausgegeben an ${t.borrowed_by_name || '?'}${t.borrowed_vehicle_name ? ` (${t.borrowed_vehicle_name})` : ''}`, 'warn'] : floating ? ['In Verwendung', 'warn'] : ['Verfügbar', 'ok'];
+    const todayIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+    const st = t.wishlist ? ['Beschaffung geplant', 'grey']
+      : t.lent_to ? (t.lent_due && t.lent_due < todayIso ? [`Rückgabe überfällig: ${t.lent_to}`, 'bad'] : [`Verliehen an ${t.lent_to}${t.lent_due ? ` bis ${fmtDate(t.lent_due)}` : ''}`, 'warn'])
+      : t.borrowed_by ? [`Ausgegeben an ${t.borrowed_by_name || '?'}${t.borrowed_vehicle_name ? ` (${t.borrowed_vehicle_name})` : ''}`, 'warn'] : floating ? ['In Verwendung', 'warn'] : ['Verfügbar', 'ok'];
     rows.push({
       key: `tool:${t.id}`, type: 'tool', typeLabel: 'Betriebsmittel', ref: t, name: t.name, sub: t.notes || '', category: t.category || '', qty: t.qty, qtyText: String(t.qty),
       loc: locText(t) || t.location_text || '', shelf: t.shelf_code || '', assign: '', status: st[0], statusCls: st[1], event: !!t.event_relevant,
-      wish: !!t.wishlist, borrowed: !!t.borrowed_by
+      wish: !!t.wishlist, borrowed: !!t.borrowed_by || !!t.lent_to
     });
   });
   boxes.forEach((b) => {

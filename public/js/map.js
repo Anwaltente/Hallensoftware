@@ -13,7 +13,7 @@
  *
  * Kommunikation nach außen nur über die handlers (siehe app.js), dadurch bleibt die Engine austauschbar.
  */
-import { store, canEdit, isAdmin, modelInfo, statusInfo } from './state.js';
+import { store, canEdit, isAdmin, modelInfo, statusInfo, bpVisible } from './state.js';
 import { drawCar } from './sprites.js';
 
 const PADDOCK_GAP = 1.8;
@@ -213,10 +213,11 @@ export class HallMap {
 
   blueprintAt(p) {
     const tol = Math.max(0.18, 9 / this.cam.zoom);
-    for (const it of [...store.blueprint].reverse()) {
+    const items = store.blueprint.filter(bpVisible);   // v5.2: ausgeblendete Layer sind nicht anklickbar
+    for (const it of [...items].reverse()) {
       if (it.type === 'node' && Math.hypot(p.x - it.points[0][0], p.y - it.points[0][1]) < tol * 1.4) return it;
     }
-    for (const it of [...store.blueprint].reverse()) {
+    for (const it of [...items].reverse()) {
       if (it.type !== 'line') continue;
       for (let i = 1; i < it.points.length; i += 1) if (distToSegment(p, it.points[i - 1], it.points[i]) < tol) return it;
     }
@@ -1060,7 +1061,7 @@ export class HallMap {
 
     const kinds = store.meta ? store.meta.blueprintKinds : { line: {}, node: {} };
     // Leitungen mit "Stromfluss"-Animation
-    for (const it of store.blueprint.filter((x) => x.type === 'line')) {
+    for (const it of store.blueprint.filter((x) => x.type === 'line' && bpVisible(x))) {
       const k = kinds.line[it.kind] || { color: '#fff' };
       const sel = this.bp.selId === it.id;
       ctx.save();
@@ -1084,7 +1085,7 @@ export class HallMap {
       }
     }
     // Knoten
-    for (const it of store.blueprint.filter((x) => x.type === 'node')) {
+    for (const it of store.blueprint.filter((x) => x.type === 'node' && bpVisible(x))) {
       const k = kinds.node[it.kind] || { color: '#fff' };
       const [x, y] = it.points[0];
       const sel = this.bp.selId === it.id;
@@ -1095,11 +1096,12 @@ export class HallMap {
       ctx.lineWidth = sel ? 0.08 : 0.05;
       ctx.beginPath();
       if (it.kind === 'verteiler') ctx.rect(x - 0.22, y - 0.22, 0.44, 0.44);
+      else if (it.kind === 'sicherungskasten') ctx.rect(x - 0.3, y - 0.3, 0.6, 0.6);
       else if (it.kind === 'kompressor') ctx.arc(x, y, 0.3, 0, Math.PI * 2);
       else ctx.arc(x, y, 0.17, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
       ctx.restore();
-      const sym = { verteiler: 'V', steckdose230: '~', steckdose400: '3~', kompressor: 'K', abscheider: 'A', kupplung: '◦', licht: '✶' }[it.kind] || '•';
+      const sym = { verteiler: 'UV', sicherungskasten: 'HV', steckdose230: '~', steckdose400: '3~', kompressor: 'K', abscheider: 'A', kupplung: '◦', licht: '✶', schalter: 'S', lampe: '✶', schlauchtrommel: '◎' }[it.kind] || '•';
       this.label(x, y, sym, { size: 10, color: k.color, weight: 800, font: 'mono' });
       if (it.label) this.label(x, y + 0.48, it.label, { size: 9, color: '#e0f2fe', bg: 'rgba(4,16,33,0.85)', font: 'mono' });
     }

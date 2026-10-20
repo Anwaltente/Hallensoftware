@@ -3,6 +3,7 @@
  *   - Fahrzeug-Modelle verwalten (dynamische Liste aus der Datenbank, eigene Silhouetten)
  *   - TV-Dashboard konfigurieren (Wechseldauer, aktive Screens, Lauftexte, Wetter)
  */
+import { renderDashBuilder } from './admin-dash.js';   // v5.2
 import { store, refreshMeta, refreshVehicles } from './state.js';
 import { get, post, put, del } from './api.js';
 import { html, setHTML, on, icon, toast, toastError, confirmDialog, formData, openModal, el } from './ui.js';
@@ -128,7 +129,7 @@ export async function tabTv(c0) {
         <p class="text-[11px] text-slate-500">Tipp: Am TV-Browser die Adresse öffnen und Vollbild (F11) aktivieren. Die Seite lädt sich selbst neu und hält das Display wach, wo der Browser das erlaubt. Auch erreichbar unter <span class="font-mono">/dashboard?key=…</span></p>
       </div>
       <form class="card p-4 space-y-3" id="tvform" data-tvform>
-        <label class="block"><span class="label">Wechseldauer pro Screen (Sekunden)</span><input class="input" type="number" min="5" max="120" name="interval" value="${cfg.interval}"></label>
+        <label class="block"><span class="label">Wechseldauer pro Screen / Seite (Sekunden)</span><input class="input" type="number" min="5" max="120" name="interval" value="${cfg.interval}"></label>
         <div><span class="label">Aktive Screens</span>
           <div class="grid sm:grid-cols-2 gap-1.5">${Object.entries(SCREENS).map(([k, l]) => html`<label class="flex items-center gap-2 text-sm card px-3 py-2"><input type="checkbox" class="check" name="screen_${k}" ${cfg.screens[k] ? 'checked' : ''}> ${l}</label>`)}</div></div>
         <label class="block"><span class="label">Hallen-Mitteilungen / Lauftexte (eine pro Zeile)</span>
@@ -142,7 +143,9 @@ export async function tabTv(c0) {
           <p class="text-[10px] text-slate-500 mt-1">Koordinaten: in Google Maps Rechtsklick auf die Halle. Leer lassen = kein Wetter.</p></div>
         <button class="btn btn-primary w-full">${icon('check')} Speichern</button>
       </form>
-    </div>`);
+    </div>
+    <div class="mt-4" data-dash></div>`);
+  renderDashBuilder(c.querySelector('[data-dash]'), { tvUrl: url });   // v5.2: Baukasten
   c.querySelector('[data-copy]').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(url); toast('TV-Link kopiert.', 'ok'); } catch { c.querySelector('[data-tvurl]').select(); }
   });

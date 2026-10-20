@@ -42,22 +42,38 @@ const SLOT_KINDS = {
   chill: 'Unter Chill-Ecke'
 };
 
+/**
+ * Blueprint: Leitungen und Punkte. Jede Art gehört zu genau einem Layer (v5.2: einzeln ein-/ausblendbar).
+ * Farben je Layer: Druckluft Neon-Blau, 230 V Gelb/Orange, 400 V Rot/Violett, Verteilung Neon-Grün, Daten Lila.
+ */
+const BLUEPRINT_LAYERS = {
+  air:  { label: 'Druckluftnetz', short: 'Druckluft', color: '#22d3ee', hint: 'Kompressor, Leitungen, Wasserabscheider, Schlauchtrommeln' },
+  v230: { label: '230V Stromnetz', short: '230 V', color: '#facc15', hint: 'Steckdosen, Lichtschalter, Lampen' },
+  v400: { label: '400V Starkstrom', short: '400 V', color: '#ff2e63', hint: 'CEE-Dosen für Hebebühnen, Schweißgerät, Kompressor' },
+  fuse: { label: 'Sicherungskasten / Unterverteiler', short: 'Verteilung', color: '#39ff88', hint: 'Hauptverteilung, Unterverteiler, Sicherungen' },
+  data: { label: 'Netzwerk / Daten', short: 'Daten', color: '#a78bfa', hint: 'LAN, WLAN, Kameras' }
+};
+
 const BLUEPRINT_KINDS = {
   line: {
-    v230: { label: '230 V Leitung', color: '#facc15' },
-    v400: { label: '400 V Starkstrom', color: '#f97316' },
-    air:  { label: 'Druckluft', color: '#22d3ee' },
-    data: { label: 'Netzwerk / Daten', color: '#a78bfa' }
+    v230: { label: '230 V Leitung', color: '#facc15', layer: 'v230' },
+    v400: { label: '400 V Starkstrom', color: '#ff2e63', layer: 'v400' },
+    air:  { label: 'Druckluft', color: '#22d3ee', layer: 'air' },
+    data: { label: 'Netzwerk / Daten', color: '#a78bfa', layer: 'data' }
   },
   node: {
-    verteiler:  { label: 'Verteiler', color: '#f43f5e' },
-    steckdose230: { label: 'Steckdose 230 V', color: '#facc15' },
-    steckdose400: { label: 'CEE 400 V', color: '#f97316' },
-    kompressor: { label: 'Kompressor', color: '#22d3ee' },
-    abscheider: { label: 'Abscheider / Wartungseinheit', color: '#38bdf8' },
-    kupplung:   { label: 'Druckluft-Kupplung', color: '#67e8f9' },
-    licht:      { label: 'Licht / Schalter', color: '#fde68a' }
+    verteiler:      { label: 'Unterverteiler', color: '#39ff88', layer: 'fuse' },
+    sicherungskasten: { label: 'Sicherungskasten (Hauptverteilung)', color: '#39ff88', layer: 'fuse' },
+    steckdose230:   { label: 'Steckdose 230 V', color: '#facc15', layer: 'v230' },
+    licht:          { label: 'Licht / Schalter', color: '#fde68a', layer: 'v230' },
+    schalter:       { label: 'Lichtschalter', color: '#fb923c', layer: 'v230' },
+    lampe:          { label: 'Lampe', color: '#fde047', layer: 'v230' },
+    steckdose400:   { label: 'CEE 400 V', color: '#c084fc', layer: 'v400' },
+    kompressor:     { label: 'Kompressor', color: '#22d3ee', layer: 'air' },
+    abscheider:     { label: 'Abscheider / Wartungseinheit', color: '#38bdf8', layer: 'air' },
+    kupplung:       { label: 'Druckluft-Kupplung', color: '#67e8f9', layer: 'air' },
+    schlauchtrommel: { label: 'Schlauchtrommel', color: '#7dd3fc', layer: 'air' }
   }
 };
 
-module.exports = { MODELS, SHAPES, STATUS, SLOT_KINDS, BLUEPRINT_KINDS };
+module.exports = { MODELS, SHAPES, STATUS, SLOT_KINDS, BLUEPRINT_KINDS, BLUEPRINT_LAYERS };

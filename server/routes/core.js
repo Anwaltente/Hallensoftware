@@ -4,7 +4,7 @@
 const express = require('express');
 const { db, getSetting, setSetting } = require('../db');
 const { requireRole } = require('../auth');
-const { SHAPES, STATUS, SLOT_KINDS, BLUEPRINT_KINDS } = require('../lib/models');
+const { SHAPES, STATUS, SLOT_KINDS, BLUEPRINT_KINDS, BLUEPRINT_LAYERS } = require('../lib/models');
 const { getModels } = require('../lib/vehicleModels');
 const { listObjects, listVehicles, activeWork, listEvents } = require('../lib/queries');
 const { pick, insertRow, updateRow, mustGet, toNumOrNull, strOrNull, toIntOrNull } = require('../lib/util');
@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
-router.get('/meta', (_req, res) => res.json({ models: getModels(), shapes: SHAPES, status: STATUS, slotKinds: SLOT_KINDS, blueprintKinds: BLUEPRINT_KINDS }));
+router.get('/meta', (_req, res) => res.json({ models: getModels(), shapes: SHAPES, status: STATUS, slotKinds: SLOT_KINDS, blueprintKinds: BLUEPRINT_KINDS, blueprintLayers: BLUEPRINT_LAYERS }));
 
 /** Alles, was die Hallen-Map zum Start braucht, in einem Request. */
 router.get('/bootstrap', (req, res) => {

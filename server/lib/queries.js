@@ -18,7 +18,7 @@ function listVehicles() {
     FROM vehicles v LEFT JOIN layout_objects lo ON lo.id = v.slot_id ORDER BY v.id`).all();
   const nextEv = db.prepare(`SELECT e.id, e.name, e.date_start FROM events e JOIN event_vehicles ev ON ev.event_id = e.id
     WHERE ev.vehicle_id = ? AND COALESCE(e.date_end, e.date_start) >= ? ORDER BY e.date_start LIMIT 1`);
-  return rows.map((v) => ({ ...v, wheel_specs: parseJSON(v.wheel_specs, []), next_event: nextEv.get(v.id, t) || null }));
+  return rows.map((v) => ({ ...v, wheel_specs: parseJSON(v.wheel_specs, []), quick_specs: parseJSON(v.quick_specs, {}) || {}, next_event: nextEv.get(v.id, t) || null }));
 }
 
 function activeWork() {

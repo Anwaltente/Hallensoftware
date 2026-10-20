@@ -177,6 +177,8 @@ const TRUTHY = new Set(['x', 'ja', 'j', 'yes', 'y', '1', 'true', 'wahr', '✓', 
 
 router.post('/admin/import/commit', admin, (req, res) => {
   const { target, mapping = {}, rows = [] } = req.body || {};
+  // v5.2: Zielfach für alle Zeilen ohne eigenen Lagerort (oder für alle, wenn override)
+  const dflt = (req.body && req.body.defaults) || {};
   if (!['parts', 'tools'].includes(target)) throw httpError(400, 'Ziel muss "parts" oder "tools" sein.');
   if (!mapping.name) throw httpError(400, 'Die Spalte für "Name" muss zugeordnet sein.');
 
@@ -202,15 +204,36 @@ router.post('/admin/import/commit', admin, (req, res) => {
     return vehicles.find((v) => norm(v.name) === n) || vehicles.find((v) => norm(v.name).includes(n) || n.includes(norm(v.name))) || null;
   };
 
+  const defShelf = toIntOrNull(dflt.shelf_id) ? shelves.find((x) => x.id === toIntOrNull(dflt.shelf_id)) || null : null;
+  if (toIntOrNull(dflt.shelf_id) && !defShelf) throw httpError(400, 'Das gewählte Regal gibt es nicht.');
+  const defLevel = defShelf ? (toIntOrNull(dflt.level) || null) : null;
+  let defBox = null;
+  if (defShelf && toIntOrNull(dflt.box_id)) {
+    defBox = db.prepare('SELECT * FROM boxes WHERE id = ? AND shelf_id = ?').get(toIntOrNull(dflt.box_id), defShelf.id);
+    if (!defBox) throw httpError(400, 'Die gewählte Eurobox gehört nicht zu diesem Regal.');
+  }
+  const defBoxLabel = defShelf && !defBox ? strOrNull(dflt.box_label) : null;   // neue Box, wird beim ersten Treffer angelegt
+  const override = !!dflt.override;
+
   let imported = 0;
   const skipped = [];
   // v5.1: Mit Turso in Etappen speichern (eine Cloud-Transaktion darf nur wenige Sekunden dauern)
   const importRow = (row, idx) => {
       const name = get(row, 'name');
       if (!name) { skipped.push(idx + 2); return; }
-      const shelf = findShelf(get(row, 'shelf'));
-      const level = toIntOrNull(get(row, 'level').replace(/\D/g, ''));
-      const box = findOrCreateBox(shelf, level, get(row, 'box'));
+      let shelf = override ? null : findShelf(get(row, 'shelf'));
+      let level = override ? null : toIntOrNull(get(row, 'level').replace(/\D/g, ''));
+      let box = null;
+      const csvBox = override ? '' : get(row, 'box');
+      if (shelf) box = findOrCreateBox(shelf, level, csvBox);
+      else if (defShelf) {
+        // kein (bekannter) Lagerort in der CSV: Standard-Zielfach; eine Box-Spalte ohne Regal landet im Standard-Regal
+        shelf = defShelf;
+        level = level || defLevel;
+        if (csvBox) box = findOrCreateBox(shelf, level || defLevel, csvBox);
+        else if (defBox) { box = defBox; level = defBox.level; }
+        else if (defBoxLabel) { box = findOrCreateBox(shelf, defLevel, defBoxLabel); }
+      }
       const base = {
         name,
         category: strOrNull(get(row, 'category')),

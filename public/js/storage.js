@@ -7,7 +7,7 @@ import { get, post, put, del } from './api.js';
 import { printLabels } from './qr.js';
 import { floatBtn, floatOf } from './hud.js';   // v4: Schwebe-Status
 import { ratchet, coin, buzz } from './sfx.js';
-import { html, setHTML, el, on, icon, toast, toastError, haptic, euro, since, openModal, confirmDialog, chooseDialog, formData, initials } from './ui.js';
+import { html, setHTML, el, on, icon, toast, toastError, haptic, euro, since, openModal, confirmDialog, chooseDialog, formData, initials, fmtDate } from './ui.js';
 
 const CONDITIONS = ['neu', 'gebraucht', 'aufbereitet', 'defekt'];
 const BOX_COLORS = ['#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#9ca3af', '#0f172a'];
@@ -398,29 +398,48 @@ export async function renderToolsPanel(container) {
   const wish = tools.filter((t) => t.wishlist);
   const q = toolState.q.toLowerCase();
   const visible = owned.filter((t) => (!q || `${t.name} ${t.category || ''} ${t.location_text || ''}`.toLowerCase().includes(q))
-    && (toolState.filter === 'all' || (toolState.filter === 'borrowed' && t.borrowed_by) || (toolState.filter === 'event' && t.event_relevant)));
+    && (toolState.filter === 'all' || (toolState.filter === 'borrowed' && t.borrowed_by) || (toolState.filter === 'event' && t.event_relevant)
+      || (toolState.filter === 'lent' && t.lent_to)));
   const borrowedCount = owned.filter((t) => t.borrowed_by).length;
+  // v5.2: außer Haus verliehen, überfällig = Rückgabedatum vorbei
+  const todayIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  const lentInfo = (t) => {
+    if (!t.lent_to) return null;
+    const dayMs = 86400000;
+    const od = t.lent_due && t.lent_due < todayIso ? Math.round((Date.parse(todayIso) - Date.parse(t.lent_due)) / dayMs) : 0;
+    const inDays = t.lent_due && !od ? Math.round((Date.parse(t.lent_due) - Date.parse(todayIso)) / dayMs) : null;
+    return { od, inDays };
+  };
+  const lent = owned.filter((t) => t.lent_to);
+  const overdue = lent.filter((t) => lentInfo(t).od > 0);
 
   const location = (t) => (t.shelf_code ? `Regal ${t.shelf_code}${t.level ? ` · E${t.level}` : ''}${t.box_label ? ` · ${t.box_label}` : ''}` : t.location_text || 'ohne festen Ort');
 
   setHTML(container, html`
     <div class="p-4 space-y-4">
       <div class="flex items-center justify-between">
-        <div><h3 class="font-display font-bold tracking-wider text-white">Werkzeug-Radar</h3><p class="text-xs text-slate-500">${owned.length} Werkzeuge · ${borrowedCount} in Benutzung</p></div>
+        <div><h3 class="font-display font-bold tracking-wider text-white">Werkzeug-Radar</h3><p class="text-xs text-slate-500">${owned.length} Werkzeuge · ${borrowedCount} in Benutzung${lent.length ? ` · ${lent.length} außer Haus` : ''}</p></div>
         ${canEdit() ? html`<button class="btn btn-sm btn-primary" data-tl-new>${icon('plus')} Werkzeug</button>` : ''}
       </div>
       <div class="relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">${icon('search')}</span>
         <input class="input !pl-9" placeholder="Werkzeug suchen …" value="${toolState.q}" data-tl-q></div>
-      <div class="flex gap-1.5">${[['all', 'Alle'], ['borrowed', 'In Benutzung'], ['event', 'Event-relevant']].map(([k, l]) => html`<button class="chip chip-btn ${toolState.filter === k ? 'on' : ''}" data-tl-filter="${k}">${l}</button>`)}</div>
+      ${overdue.length ? html`<div class="tool-overdue">${icon('alert', 'w-4 h-4 shrink-0')}<div class="flex-1 min-w-0">${overdue.map((t) => html`<div>Überfällig: <b>${t.name}</b> bei <b>${t.lent_to}</b> seit ${lentInfo(t).od} ${lentInfo(t).od === 1 ? 'Tag' : 'Tagen'}!</div>`)}</div></div>` : ''}
+      <div class="flex flex-wrap gap-1.5">${[['all', 'Alle'], ['borrowed', 'In Benutzung'], ['lent', `Außer Haus${lent.length ? ` (${lent.length})` : ''}`], ['event', 'Event-relevant']].map(([k, l]) => html`<button class="chip chip-btn ${toolState.filter === k ? 'on' : ''} ${k === 'lent' && overdue.length ? 'chip-alarm' : ''}" data-tl-filter="${k}">${l}</button>`)}</div>
       <div class="space-y-1.5" data-tl-list>
         ${visible.map((t) => html`
-          <div class="card px-3 py-2.5 ${t.borrowed_by ? '!border-pink-400/30' : ''}" data-tool="${t.id}">
+          <div class="card px-3 py-2.5 ${t.lent_to ? (lentInfo(t).od ? 'tool-od' : 'tool-lent') : t.borrowed_by ? '!border-pink-400/30' : ''}" data-tool="${t.id}">
             <div class="flex items-start gap-2.5">
-              <span class="mt-0.5 ${t.borrowed_by ? 'text-pink-300' : 'text-sky-300'}">${icon('wrench')}</span>
+              <span class="mt-0.5 ${t.lent_to ? (lentInfo(t).od ? 'text-rose-300' : 'text-violet-300') : t.borrowed_by ? 'text-pink-300' : 'text-sky-300'}">${icon('wrench')}</span>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-semibold text-white">${t.name}${t.qty > 1 ? html` <span class="text-slate-500 font-normal">(${t.qty}×)</span>` : ''}</div>
                 <div class="text-[11px] text-slate-500">${t.category ? `${t.category} · ` : ''}${location(t)}</div>
-                ${t.borrowed_by ? html`<div class="mt-1 text-xs text-pink-200 flex items-center gap-1.5">
+                ${t.lent_to ? html`<div class="mt-1 text-xs ${lentInfo(t).od ? 'text-rose-200 font-semibold' : 'text-violet-200'}">
+                  ${icon('move', 'w-3 h-3 inline')} Außerhalb der Halle · verliehen an <b>${t.lent_to}</b> seit ${fmtDate(t.lent_at)}
+                  <div class="text-[11px] ${lentInfo(t).od ? 'text-rose-300' : 'text-violet-300/80'}">${t.lent_due
+                    ? (lentInfo(t).od ? `Überfällig seit ${lentInfo(t).od} ${lentInfo(t).od === 1 ? 'Tag' : 'Tagen'} (Rückgabe war ${fmtDate(t.lent_due)})`
+                      : lentInfo(t).inDays === 0 ? 'Rückgabe heute fällig' : `Rückgabe bis ${fmtDate(t.lent_due)} (in ${lentInfo(t).inDays} ${lentInfo(t).inDays === 1 ? 'Tag' : 'Tagen'})`)
+                    : 'ohne Rückgabedatum'}${t.lent_note ? ` · ${t.lent_note}` : ''}</div></div>`
+                : t.borrowed_by ? html`<div class="mt-1 text-xs text-pink-200 flex items-center gap-1.5">
                   <span class="w-4 h-4 rounded-full grid place-items-center text-[8px] font-bold text-black" style="background:${t.borrowed_by_color}">${initials(t.borrowed_by_name)}</span>
                   In Benutzung von <b>${t.borrowed_by_name}</b>${t.borrowed_vehicle_name ? html` an <b>${t.borrowed_vehicle_name}</b>` : ''} <span class="text-pink-300/60">${since(t.borrowed_at)}</span></div>`
                   : floatOf('tool', t.id) ? html`<div class="mt-1 text-[11px] text-amber-300">🛠️ liegt rum${floatOf('tool', t.id).spot ? ` ${floatOf('tool', t.id).spot}` : ''}</div>`
@@ -431,10 +450,13 @@ export async function renderToolsPanel(container) {
                   <button class="btn-icon !w-7 !h-7 ${t.event_relevant ? '!text-amber-300' : ''}" data-tl-event="${t.id}" title="Event-relevant umschalten">${icon('flag', 'w-3.5 h-3.5')}</button>` : (t.event_relevant ? html`<span class="text-amber-300">${icon('flag', 'w-3.5 h-3.5')}</span>` : '')}
               </div>
             </div>
-            ${canEdit() ? html`<div class="flex gap-1.5 mt-2">
+            ${canEdit() ? html`<div class="flex flex-wrap gap-1.5 mt-2">
+              ${t.lent_to ? html`<button class="btn btn-sm btn-lime flex-1" data-tl-back="${t.id}">${icon('undo', 'w-3.5 h-3.5')} Wieder in der Halle</button>`
+                : html`
               ${t.borrowed_by ? html`<button class="btn btn-sm flex-1" data-tl-return="${t.id}">${icon('undo', 'w-3.5 h-3.5')} Zurückgegeben</button>`
                 : html`<button class="btn btn-sm flex-1" data-tl-borrow="${t.id}">${icon('play', 'w-3 h-3')} Nehme ich</button>`}
               ${floatBtn('tool', t.id)}
+              <button class="btn btn-sm" data-tl-lend="${t.id}" title="Außer Haus verleihen (Kumpel, Firma …)">${icon('move', 'w-3.5 h-3.5')} Verleihen</button>`}
               <button class="btn btn-sm" data-tl-edit="${t.id}">${icon('edit', 'w-3.5 h-3.5')}</button>
               ${t.shelf_id ? html`<button class="btn btn-sm" data-tl-goto="${t.shelf_id}" data-level="${t.level || ''}" data-box="${t.box_id || ''}">${icon('target', 'w-3.5 h-3.5')}</button>` : ''}
             </div>` : ''}
@@ -492,6 +514,15 @@ export async function renderToolsPanel(container) {
     on(container, 'click', '[data-tl-return]', async (_e, b) => {
       try { await post(`/tools/${b.dataset.tlReturn}/return`); coin(); buzz(15); toast('Zurück an seinem Platz.', 'ok'); rerender(); if (app.refreshHud) app.refreshHud(); } catch (err) { toastError(err); }
     });
+    // v5.2: Verleih außer Haus
+    on(container, 'click', '[data-tl-lend]', async (_e, b) => {
+      const list = await get('/tools');
+      const t = list.find((x) => x.id === Number(b.dataset.tlLend));
+      if (t) openLendDialog(t, rerender);
+    });
+    on(container, 'click', '[data-tl-back]', async (_e, b) => {
+      try { await post(`/tools/${b.dataset.tlBack}/back`); coin(); buzz(15); toast('Wieder in der Halle, zurück an seinem Stammplatz.', 'ok'); rerender(); if (app.refreshHud) app.refreshHud(); } catch (err) { toastError(err); }
+    });
     on(container, 'click', '[data-tl-event]', async (_e, b) => {
       const list = await get('/tools');
       const t = list.find((x) => x.id === Number(b.dataset.tlEvent));
@@ -502,6 +533,55 @@ export async function renderToolsPanel(container) {
     });
     on(container, 'click', '[data-tl-goto]', (_e, b) => app.navigate({ kind: 'shelf', shelfId: Number(b.dataset.tlGoto), level: Number(b.dataset.level) || null, boxId: Number(b.dataset.box) || null }));
   }
+}
+
+/**
+ * v5.2: Schneller Verleih-Dialog "Außerhalb der Halle / Verliehen"
+ * An wen · Verleihdatum (heute) · erwartete Rückgabe · Notiz
+ */
+export async function openLendDialog(t, onDone) {
+  let names = [];
+  try { names = await get('/tools/lend-names'); } catch { /* egal */ }
+  const pool = [...new Set([...names, ...store.users.map((u) => u.name)])];
+  const iso = (d) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  const todayIso = iso(new Date());
+  const plus = (n) => iso(new Date(Date.now() + n * 86400000));
+  const body = el(html`<div>
+    <form class="space-y-3" data-form>
+      <label class="block"><span class="label">An wen verliehen? (Name / Firma / Kumpel)</span>
+        <input class="input" name="to" list="lendNames" required autocomplete="off" placeholder="z. B. Max, Reifen Müller GmbH">
+        <datalist id="lendNames">${pool.map((n) => html`<option value="${n}"></option>`)}</datalist></label>
+      ${pool.length ? html`<div class="flex flex-wrap gap-1.5">${pool.slice(0, 8).map((n) => html`<button type="button" class="chip chip-btn" data-pick="${n}">${n}</button>`)}</div>` : ''}
+      <div class="grid grid-cols-2 gap-3">
+        <label><span class="label">Verleihdatum</span><input class="input" type="date" name="date" value="${todayIso}" max="${todayIso}"></label>
+        <label><span class="label">Erwartete Rückgabe</span><input class="input" type="date" name="due" value="${plus(7)}" min="${todayIso}"></label>
+      </div>
+      <div class="flex flex-wrap gap-1.5">${[[1, 'morgen'], [3, '3 Tage'], [7, '1 Woche'], [14, '2 Wochen'], [30, '1 Monat']].map(([n, l]) => html`<button type="button" class="chip chip-btn" data-due="${plus(n)}">${l}</button>`)}
+        <button type="button" class="chip chip-btn" data-due="">offen</button></div>
+      <label class="block"><span class="label">Notiz (optional)</span><input class="input" name="note" placeholder="z. B. mit Koffer und 2 Akkus"></label>
+    </form></div>`);
+  const m = openModal({
+    title: `${t.name} verleihen`, subtitle: 'Status: Außerhalb der Halle / Verliehen', size: 'sm', iconName: 'move', body,
+    footer: html`<button class="btn" data-close>Abbrechen</button><button class="btn btn-primary" data-save>${icon('check')} Verliehen</button>`
+  });
+  const f = body.querySelector('[data-form]');
+  on(body, 'click', '[data-pick]', (_e, b) => { f.to.value = b.dataset.pick; });
+  on(body, 'click', '[data-due]', (_e, b) => { f.due.value = b.dataset.due; });
+  setTimeout(() => f.to.focus(), 60);
+  const save = async () => {
+    if (!f.reportValidity()) return;
+    const d = formData(f);
+    try {
+      await post(`/tools/${t.id}/lend`, { to: d.to, date: d.date, due: d.due || null, note: d.note });
+      m.close();
+      ratchet();
+      toast(`${t.name} ist verliehen an ${d.to}${d.due ? `, zurück bis ${fmtDate(d.due)}` : ''}.`, 'ok');
+      if (app.refreshHud) app.refreshHud();
+      if (onDone) onDone();
+    } catch (err) { toastError(err); }
+  };
+  m.footer.querySelector('[data-save]').addEventListener('click', save);
+  f.addEventListener('submit', (e) => { e.preventDefault(); save(); });
 }
 
 export async function openToolForm(tool = {}, onSaved) {

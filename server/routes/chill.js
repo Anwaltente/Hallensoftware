@@ -71,7 +71,10 @@ const setupSchema = {
   setup_date: (v) => strOrNull(v) || today(),
   data: (v) => JSON.stringify(v && typeof v === 'object' ? v : {}),
   rating: (v) => { const n = toIntOrNull(v); return n ? Math.min(5, Math.max(1, n)) : null; },
-  notes: strOrNull
+  notes: strOrNull,
+  // v5.2: Spur in mm (Summe je Achse, + = Vorspur, - = Nachspur)
+  toe_front_mm: (v) => { const n = Number(String(v ?? '').replace(',', '.')); return v === '' || v === null || v === undefined || !Number.isFinite(n) ? null : Math.round(n * 100) / 100; },
+  toe_rear_mm: (v) => { const n = Number(String(v ?? '').replace(',', '.')); return v === '' || v === null || v === undefined || !Number.isFinite(n) ? null : Math.round(n * 100) / 100; }
 };
 const serializeSetup = (s) => ({ ...s, data: parseJSON(s.data, {}) });
 

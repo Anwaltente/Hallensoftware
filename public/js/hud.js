@@ -56,9 +56,11 @@ function bizHudHtml(mobile) {
   const critChip = crit ? html`<button class="hud-btn hud-crit" data-hud="bizmat" title="${(h.critical || []).map((c) => c.text).join('\n')}">${icon('alert', 'w-4 h-4 shrink-0')}<span>${mobile ? 'Mindestbestand unterschritten' : 'Mindestbestand'} (${crit + low})</span></button>` : '';
   const cart = need ? html`<button class="hud-btn hud-cart ${h.radarNew ? 'has' : ''}" data-hud="cart" title="Bedarfsliste: ${h.radarNew || 0} neu ermittelt, ${h.shoppingOpen || 0} offen">${icon('list', 'w-4 h-4')}<span>Bedarf (${need})</span></button>` : '';
   const floatChip = n ? html`<button class="hud-btn hud-float has" data-hud="float" title="Betriebsmittel außerhalb des Lagerorts">${icon('package', 'w-4 h-4')}<span>${mobile ? `Offen (${n})` : `Entnahmen (${n})`}</span></button>` : '';
+  const od = h.overdue || 0;
+  const odChip = od ? html`<button class="hud-btn hud-od" data-hud="tools" title="${((h.lent || []).filter((l) => l.overdue).map((l) => l.text)).join('\n')}">${icon('alert', 'w-4 h-4')}<span>Rückgabe überfällig (${od})</span></button>` : '';
   const quick = canEdit() ? html`<button class="hud-btn hud-quick" data-hud="bizmat" title="Materialentnahme / Verbrauchsbeleg erfassen">${icon('edit', 'w-4 h-4')}<span>Materialentnahme</span></button>` : '';
-  if (mobile) return html`${critChip}<div class="hud-row">${quick}${cart}${floatChip}</div>`;
-  return html`${critChip}${cart}${floatChip}${quick}`;
+  if (mobile) return html`${critChip}${odChip}<div class="hud-row">${quick}${cart}${floatChip}</div>`;
+  return html`${critChip}${odChip}${cart}${floatChip}${quick}`;
 }
 
 function hudHtml(mobile) {
@@ -89,9 +91,16 @@ function hudHtml(mobile) {
     <button class="hud-btn hud-cart ${radarNew ? 'has' : ''}" data-hud="cart" title="Demnächst einkaufen: ${radarNew} neu im Mangel-Radar, ${listOpen} auf der Einkaufsliste">
       <span aria-hidden="true">🛒</span><b>${radarNew + listOpen}</b>${mobile ? '' : html`<span class="hidden xl:inline">einkaufen</span>`}
     </button>` : '';
+  // v5.2: überfälliges Werkzeug (außer Haus verliehen) leuchtet rot
+  const od = h.overdue || 0;
+  const odLent = (h.lent || []).filter((l) => l.overdue);
+  const odChip = od ? html`
+    <button class="hud-btn hud-od" data-hud="tools" title="${odLent.map((l) => l.text).join('\n')}">
+      ${icon('alert', 'w-4 h-4 shrink-0')}${mobile ? html`<span>${odLent[0].text}${od > 1 ? ` (+${od - 1})` : ''}</span>` : html`<span class="hidden xl:inline">Überfällig:</span><b>${od}</b>`}
+    </button>` : '';
   const mute = html`<button class="hud-btn hud-mute ${isMuted() ? 'off' : ''}" data-hud="mute" title="${isMuted() ? 'Ton ist aus' : 'Ton ist an'} (Klick zum Umschalten)">${isMuted() ? '🔇' : '🔊'}</button>`;
-  if (mobile) return html`${critChip}<div class="hud-row">${quick}${cart}${floatChip}${mute}</div>`;
-  return html`${critChip}${cart}${floatChip}${quick}${mute}`;
+  if (mobile) return html`${critChip}${odChip}<div class="hud-row">${quick}${cart}${floatChip}${mute}</div>`;
+  return html`${critChip}${odChip}${cart}${floatChip}${quick}${mute}`;
 }
 
 function renderHud() {
@@ -111,6 +120,7 @@ export function initHud() {
     if (a === 'mute') { toggleMute(); buzz(10); return; }
     tick(); buzz(12);
     if (a === 'bizmat') { if (app.bizTab) app.bizTab('material'); return; }
+    if (a === 'tools') { if (app.showTab) app.showTab('tools'); return; }   // v5.2: überfälliges Werkzeug
     if (a === 'quick') app.openQuickUse && app.openQuickUse();
     if (a === 'float') openFloatDrawer();
     if (a === 'crit' || a === 'cart') app.openQuickUse && app.openQuickUse({ tab: 'shop' });

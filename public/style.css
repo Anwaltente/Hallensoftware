@@ -604,3 +604,65 @@ mark { background: rgba(250,204,21,0.35); color: #fff; border-radius: 2px; paddi
 .hud-cart { color: #fde68a; border-color: rgba(250,204,21,.35); }
 .hud-cart.has { color: #1a1003; background: #facc15; border-color: #fde047; box-shadow: 0 0 14px rgba(250,204,21,.35); }
 .hud-cart b { font-size: .9rem; }
+
+/* ---------------- v5.2: Werkzeug außer Haus / überfällig ---------------- */
+.tool-lent { border-color: rgba(167,139,250,.45) !important; background: rgba(139,92,246,.06) !important; }
+.tool-od { border-color: #fb7185 !important; background: rgba(190,18,60,.16) !important; animation: alertPulse 1.6s ease-in-out infinite; }
+.tool-overdue { display: flex; gap: .6rem; align-items: flex-start; padding: .65rem .8rem; border-radius: 10px; color: #fff; font-size: .82rem; line-height: 1.35;
+  background: linear-gradient(90deg, rgba(190,18,60,.55), rgba(190,18,60,.2)); border: 1px solid #fb7185; text-shadow: 0 0 8px #f43f5e; animation: critPulse 1.15s ease-in-out infinite; }
+.chip-alarm { border-color: #fb7185 !important; color: #fecdd3 !important; background: rgba(225,29,72,.18) !important; }
+.hud-od { color: #fff; border-color: #fb7185; background: rgba(190,18,60,.35); animation: critPulse 1.15s ease-in-out infinite; text-transform: none; letter-spacing: .01em; }
+
+/* ---------------- v5.2: Quick Specs (Spickzettel) ---------------- */
+.qs-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+@media (min-width: 640px) { .qs-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .qs-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.qs-tile { position: relative; border-radius: 12px; padding: .8rem .85rem .75rem; background: linear-gradient(180deg, #161d28, #10151d); border: 1px solid rgba(255,255,255,.09); min-height: 6.2rem; display: flex; flex-direction: column; }
+.qs-tile.wide { grid-column: span 2; }
+.qs-tile .k { font-family: var(--font-display); font-size: .66rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #94a3b8; display: flex; align-items: center; gap: .35rem; }
+.qs-tile .v { font-family: var(--font-display); font-weight: 800; font-size: 1.85rem; line-height: 1.05; color: #fff; margin-top: .3rem; font-variant-numeric: tabular-nums; }
+.qs-tile .v small { font-size: .9rem; font-weight: 600; color: #94a3b8; margin-left: .2rem; }
+.qs-tile .s { font-size: .78rem; color: #cbd5e1; margin-top: auto; padding-top: .25rem; }
+.qs-tile.empty .v { color: #475569; font-size: 1.3rem; }
+.qs-tile::before { content: ''; position: absolute; left: 12px; right: 12px; top: 0; height: 3px; border-radius: 0 0 3px 3px; background: var(--qc, #22d3ee); opacity: .85; }
+.qs-press { display: grid; grid-template-columns: auto 1fr 1fr; gap: .2rem .7rem; align-items: baseline; margin-top: .3rem; font-family: var(--font-display); }
+.qs-press b { font-size: 1.35rem; color: #fff; font-variant-numeric: tabular-nums; }
+.qs-press span { font-size: .66rem; color: #94a3b8; letter-spacing: .1em; text-transform: uppercase; }
+
+/* ---------------- v5.2: Blueprint-Layer ---------------- */
+.bp-layers { display: grid; gap: .3rem; min-width: 12.5rem; }
+.bp-layer { display: flex; align-items: center; gap: .5rem; font-size: .74rem; cursor: pointer; user-select: none; color: #cbd5e1; padding: .15rem .1rem; }
+.bp-layer input { appearance: none; width: 1rem; height: 1rem; border-radius: 4px; border: 2px solid var(--lc); display: inline-grid; place-content: center; flex-shrink: 0; box-shadow: 0 0 6px var(--lc); }
+.bp-layer input:checked { background: var(--lc); }
+.bp-layer input:checked::after { content: ''; width: .3rem; height: .55rem; border: solid #041021; border-width: 0 2px 2px 0; transform: rotate(45deg); margin-top: -2px; }
+.bp-layer .sw { width: 1.4rem; height: 3px; border-radius: 2px; background: var(--lc); box-shadow: 0 0 8px var(--lc); }
+.bp-layer.off { color: #64748b; }
+.bp-layer.off .sw { opacity: .25; box-shadow: none; }
+.bp-layer small { color: #64748b; margin-left: auto; font-family: var(--font-mono); }
+@media (max-width: 1023px) { #hudDock .hud-od { max-width: none; height: auto; min-height: 2.2rem; padding: .35rem .6rem; white-space: normal; font-size: .8rem; } }
+#mapLegend.bp-on { display: block !important; max-width: calc(100% - 4.5rem); top: auto; bottom: .75rem; }
+@media (max-width: 639px) { #mapLegend.bp-on { font-size: .7rem; } }
+
+/* ---------------- v5.2: TV-Baukasten (Admin) ---------------- */
+.dash-grid, .dash-mini { display: grid; gap: .5rem; }
+.dash-mini { gap: 2px; width: 2.6rem; height: 1.5rem; }
+.dash-mini i { background: rgba(125,211,252,.35); border-radius: 2px; }
+.dl-1x1 { grid-template-columns: 1fr; }
+.dl-split { grid-template-columns: 1fr 1fr; }
+.dl-split-h { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+.dl-3col { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dl-2x2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.dl-main-side { grid-template-columns: 1.6fr 1fr; grid-template-rows: 1fr 1fr; }
+.dl-main-side > :first-child { grid-row: span 2; }
+.dl-3x2 { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 1fr 1fr; }
+.dash-grid { aspect-ratio: 16 / 7.5; min-height: 12rem; background: #070a0f; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: .5rem; }
+@media (max-width: 639px) { .dash-grid { aspect-ratio: auto; } .dash-grid.dl-3col, .dash-grid.dl-3x2 { grid-template-columns: 1fr 1fr; } }
+.dash-cell { min-width: 0; border-radius: 8px; padding: .45rem .5rem; background: linear-gradient(180deg, #161d28, #10151d); border: 1px solid rgba(255,255,255,.1); cursor: grab; overflow: auto; }
+.dash-cell.is-empty { border-style: dashed; background: transparent; }
+.dash-cell.drop { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,.35); }
+.dash-emo { font-size: 1rem; line-height: 1; }
+.dash-lay { display: inline-flex; flex-direction: column; align-items: center; gap: .25rem; padding: .35rem .45rem; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); font-size: .62rem; color: #94a3b8; }
+.dash-lay.on { border-color: #22d3ee; color: #e0f2fe; background: rgba(34,211,238,.1); }
+.dash-lay.on .dash-mini i { background: #22d3ee; }
+.dash-palette { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.dash-palette [data-wdrag] { cursor: grab; }

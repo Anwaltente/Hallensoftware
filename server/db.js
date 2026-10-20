@@ -469,6 +469,16 @@ ensureColumn('parts', 'open_rest', 'REAL');            // Restmenge im angebroch
 ensureColumn('tasks', 'cost', 'REAL');                 // Preis / geplante Kosten einer Aufgabe
 ensureColumn('purchases', 'task_id', 'INTEGER');       // Budget-Zeile gehört zu dieser Aufgabe
 ensureColumn('purchases', 'log_id', 'INTEGER');        // Budget-Zeile gehört zu diesem Wartungsheft-Eintrag
+// v5.2: Werkzeug außer Haus verliehen (an Kumpel, Firma ...), mit erwarteter Rückgabe
+ensureColumn('tools', 'lent_to', 'TEXT');              // an wen
+ensureColumn('tools', 'lent_at', 'TEXT');              // seit wann (Zeitstempel)
+ensureColumn('tools', 'lent_due', 'TEXT');             // erwartete Rückgabe (JJJJ-MM-TT)
+ensureColumn('tools', 'lent_note', 'TEXT');
+// v5.2: Fahrzeug-Spickzettel (Drehmomente, Füllmengen, Zündkerzen, Reifendrücke) als JSON
+ensureColumn('vehicles', 'quick_specs', 'TEXT');
+// v5.2: Spur in Millimetern (Summe je Achse, + = Vorspur). Alte Gradwerte im JSON bleiben unangetastet.
+ensureColumn('setups', 'toe_front_mm', 'REAL');
+ensureColumn('setups', 'toe_rear_mm', 'REAL');
 
 /* ---------- v3: neue Tabellen (nur CREATE TABLE IF NOT EXISTS) ---------- */
 db.exec(`
@@ -578,6 +588,19 @@ CREATE TABLE IF NOT EXISTS shopping_list (
   done_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_shopping_open ON shopping_list(status);
+
+-- v5.2: frei konfigurierbare Seiten für das Hallen-TV (/tv, /dashboard)
+CREATE TABLE IF NOT EXISTS dashboard_configs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  layout     TEXT NOT NULL DEFAULT '2x2',   -- 1x1 | split | split-h | 3col | 2x2 | main-side | 3x2
+  tiles      TEXT NOT NULL DEFAULT '[]',    -- JSON: [{ widget, text?, title? }, ...] je Kachel
+  duration   INTEGER,                       -- eigene Anzeigedauer in s (leer = allgemeines Intervall)
+  sort       INTEGER NOT NULL DEFAULT 100,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT DEFAULT ${NOW},
+  updated_at TEXT
+);
 `);
 ensureColumn('consumable_moves', 'detail', 'TEXT');   // v4.2: welche Gebinde wie viel abgegeben haben (für Rückgängig)
 
@@ -999,6 +1022,25 @@ seedV2();
     setSetting('mig_v51_budget', true);
   } catch (e) {
     console.warn('[db] v5.1-Budget-Übernahme übersprungen:', e.message);
+  }
+})();
+
+/*
+ * v5.2: Zwei Beispiel-Seiten für den TV-Baukasten, nur wenn die NEUE Tabelle leer ist (einmalig, Merker in settings).
+ * Das TV zeigt sie erst, wenn im Admin "Eigene Dashboard-Seiten" eingeschaltet wird; bis dahin bleibt alles wie gehabt.
+ */
+(function seedV52Dashboards() {
+  try {
+    if (getSetting('seed_v52_dash')) return;
+    if (!db.prepare('SELECT COUNT(*) AS c FROM dashboard_configs').get().c) {
+      const ins = db.prepare('INSERT INTO dashboard_configs (name, layout, tiles, sort, active, created_at) VALUES (?,?,?,?,1,?)');
+      const ts = new Date().toISOString();
+      ins.run('Übersicht', '2x2', JSON.stringify([{ widget: 'event' }, { widget: 'work' }, { widget: 'shortage' }, { widget: 'tools' }]), 10, ts);
+      ins.run('Halle', 'main-side', JSON.stringify([{ widget: 'hall' }, { widget: 'banner', text: 'Wer zuletzt geht, macht das Licht aus!' }, { widget: 'tasks' }]), 20, ts);
+    }
+    setSetting('seed_v52_dash', true);
+  } catch (e) {
+    console.warn('[db] v5.2-Dashboard-Beispiele übersprungen:', e.message);
   }
 })();
 

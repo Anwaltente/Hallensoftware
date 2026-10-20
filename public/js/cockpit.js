@@ -11,9 +11,10 @@ import { openWorkDialog } from './whiteboard.js';
 import { renderSetupTab } from './setup.js';
 import { printLabels } from './qr.js';
 import { dimsFields, bindDims, dimsPayload } from './dims.js';   // v4.1: Radmaße + KI-Auto-Fill
+import { renderQuickSpecs } from './quickspecs.js';             // v5.2: Spickzettel
 
 const TABS = [
-  ['tasks', 'Aufgaben', 'list'], ['log', 'Wartungsheft', 'book'], ['budget', 'Budget', 'euro'], ['docs', 'Dokumente', 'file'],
+  ['tasks', 'Aufgaben', 'list'], ['quick', 'Quick Specs', 'gauge'], ['log', 'Wartungsheft', 'book'], ['budget', 'Budget', 'euro'], ['docs', 'Dokumente', 'file'],
   ['setup', 'Setup & Maße', 'gauge'], ['data', 'Daten & TÜV', 'settings'], ['parts', 'Teile', 'box'], ['events', 'Events', 'flag'], ['edit', 'Einstellungen', 'edit']
 ];
 const DOC_KINDS = { schein: 'Fahrzeugschein', gutachten: 'Gutachten / Teilegutachten', tuev: 'TÜV-Bericht', foto: 'Foto', rechnung: 'Rechnung', sonstiges: 'Sonstiges' };
@@ -112,7 +113,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
 
   function renderTab() {
     renderTabs();
-    const r = { tasks: tabTasks, log: tabLog, budget: tabBudget, docs: tabDocs, setup: tabSetup, data: tabData, parts: tabParts, events: tabEvents, edit: tabEdit }[current];
+    const r = { tasks: tabTasks, quick: () => renderQuickSpecs(content, { vehicle: data.vehicle }), log: tabLog, budget: tabBudget, docs: tabDocs, setup: tabSetup, data: tabData, parts: tabParts, events: tabEvents, edit: tabEdit }[current];
     r();
   }
 

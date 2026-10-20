@@ -156,6 +156,17 @@ Bestehende Datenbanken werden beim Start automatisch migriert (neue Tabellen, ne
   und wandert beim Abhaken nach "Bereits gekauft". Kosten bei einem manuellen Wartungsheft-Eintrag stehen automatisch unter
   "Bereits gekauft". Pro Vorgang gibt es genau eine Budget-Zeile (Markierung "aus Aufgabe" / "aus Wartungsheft").
 
+## Neu in Version 5.2
+
+* **TV-Baukasten:** Admin → TV-Dashboard → Seiten mit Raster (Vollbild, Split, 3 Spalten, 2 × 2 ...) und Widgets per Drag & Drop, mehrere Seiten rotieren.
+* **Werkzeug verleihen** (außer Haus) mit Rückgabedatum; Überfälliges leuchtet rot (Werkzeug-Menü, HUD, TV), Rückgabe mit 1 Klick.
+* **CSV-Import mit Zielfach:** Standard-Regal, Ebene und Eurobox (auch neue Box) für alle Zeilen ohne eigenen Lagerort.
+* **Quick Specs** im Cockpit: Drehmomente, Füllmengen, Zündkerzen, Reifendrücke als große Kacheln.
+* **Setup:** Spur in mm je Achse (Sturz bleibt in Grad), Grafik proportional.
+* **Blueprint-Layer** einzeln ein-/ausblenden: Druckluft, 230 V, 400 V, Sicherungskasten/Unterverteiler, Daten.
+
+Details: `AENDERUNGEN-v5.2.md`.
+
 ## Projektstruktur
 
 ```
@@ -225,6 +236,8 @@ public/
     admin-v4.js            v4: Admin-Tab Verbrauch & Kritisch
     dims.js                v4.1: Radmaße-Formular + KI-Auto-Fill
     biz.js                 v5: Büro-Ansicht, Alt+B / Esc, Profilmenü, ERP-Tabellen
+    quickspecs.js          v5.2: Fahrzeug-Spickzettel (Cockpit-Reiter Quick Specs)
+    admin-dash.js          v5.2: TV-Baukasten (Raster, Widgets, Seiten)
   tv.html, tv.css, tv.js   v3: Hallen-TV (eigenständige Kiosk-Seite unter /tv)
 scripts/turso-import.js    v5.1: data/halle.db nach Turso kopieren (npm run turso:import)
 scripts/turso-backup.js    v5.1: Turso als SQLite-Datei sichern (npm run turso:backup)

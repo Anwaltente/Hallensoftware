@@ -4,7 +4,7 @@
  * - Blueprint-Editor: Leitungen (230 V, 400 V, Druckluft, Daten) und Knoten per Linienzug
  * - Konsole: Nutzer & Rechte, Hall Pass, Post-Event Quick-Checks, CSV-Import, Geräte, System/Backup
  */
-import { store, app, setState, emit, isAdmin, refreshAll, refreshBlueprint } from './state.js';
+import { store, app, setState, emit, isAdmin, refreshAll, refreshBlueprint, setBpLayer, bpLayerOf } from './state.js';
 import { get, post, put, del, upload } from './api.js';
 import { $, html, setHTML, el, on, icon, toast, toastError, haptic, openModal, confirmDialog, formData, initials, fmtDateTime, pinPad } from './ui.js';
 import { ensureAdminUnlocked } from './auth.js';
@@ -71,7 +71,10 @@ export function renderMapTopBar() {
             <button class="${bp.tool === 'line' ? 'on bp' : ''}" data-tb="tool:line">Leitung</button>
             <button class="${bp.tool === 'node' ? 'on bp' : ''}" data-tb="tool:node">Punkt</button>
           </div>
-          ${bp.tool !== 'select' ? html`<select class="select !w-auto !py-1 text-xs" data-bpkind>${Object.entries(kinds).map(([k, v]) => html`<option value="${k}" ${bp.kind === k ? 'selected' : ''}>${v.label}</option>`)}</select>` : ''}
+          ${bp.tool !== 'select' ? html`<select class="select !w-auto !py-1 text-xs" data-bpkind>${Object.entries(store.meta.blueprintLayers || { x: { label: '' } }).map(([lk, l]) => {
+            const opts = Object.entries(kinds).filter(([, v]) => !store.meta.blueprintLayers || v.layer === lk);
+            return opts.length ? html`<optgroup label="${l.label}">${opts.map(([k, v]) => html`<option value="${k}" ${bp.kind === k ? 'selected' : ''}>${v.label}</option>`)}</optgroup>` : '';
+          })}</select>` : ''}
           ${bp.tool === 'line' ? html`<button class="btn btn-sm" data-tb="finish">${icon('check', 'w-3 h-3')} Linie fertig</button>` : ''}` : ''}
       </div>
       ${bp.edit && bp.tool === 'line' ? html`<div class="pointer-events-none glass rounded-lg px-3 py-1 text-[11px] text-sky-200/80">Klicken = Punkt setzen (rechtwinklig, Shift = frei) · Doppelklick/Enter = fertig · Esc = abbrechen · Rücktaste = letzten Punkt weg</div>` : ''}`);
@@ -208,6 +211,7 @@ async function createBlueprintItem(item) {
   try {
     const kinds = store.meta.blueprintKinds[item.type];
     const saved = await post('/blueprint', { ...item, label: '' });
+    if (store.bpHidden.has(bpLayerOf(item))) setBpLayer(bpLayerOf(item), true);   // v5.2: neues Element sichtbar machen
     await refreshBlueprint();
     app.map.bp.selId = saved.id;
     renderProps({ kind: 'blueprint', item: store.blueprint.find((b) => b.id === saved.id) });
@@ -439,6 +443,29 @@ function tabImport(c0) {
   const c = fresh(c0);
   let preview = null;
   let target = 'parts';
+  // v5.2: Zielfach-Routing (Standard-Regal, Ebene, Eurobox) für Zeilen ohne eigenen Lagerort
+  const def = { shelf_id: '', level: '', box_id: '', box_label: '', override: false };
+  let boxes = [];
+  get('/boxes').then((b) => { boxes = b; if (preview) render(); }).catch(() => {});
+  const shelves = () => store.objects.filter((o) => o.type === 'shelf').sort((a, b) => String(a.code).localeCompare(String(b.code), 'de', { numeric: true }));
+  const routeHtml = () => {
+    const sh = shelves().find((x) => String(x.id) === String(def.shelf_id));
+    const levels = sh ? Number(sh.props && sh.props.levels) || 4 : 4;
+    const bx = sh ? boxes.filter((b) => b.shelf_id === sh.id && (!def.level || String(b.level) === String(def.level))) : [];
+    const hasCsvLoc = preview && (preview.mapping.shelf || preview.mapping.box);
+    return html`
+      <div class="card p-3 mb-4 border-cyan-400/30" data-route>
+        <div class="flex items-center gap-2 mb-2"><span class="text-cyan-300">${icon('target', 'w-4 h-4')}</span><h4 class="font-display font-bold text-white text-sm flex-1">Zielfach (Standard-Lagerort)</h4></div>
+        <p class="text-xs text-slate-400 mb-2">Alle importierten Zeilen ohne eigenen Lagerort landen hier. ${hasCsvLoc ? 'Zeilen mit Regal/Box in der CSV behalten ihren Lagerort (außer du setzt den Haken unten).' : 'Die CSV hat keine Regal-/Box-Spalte zugeordnet: alle Zeilen kommen ins Zielfach.'}</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <label><span class="label">Regal</span><select class="select text-sm" data-def="shelf_id"><option value="">kein Standard</option>${shelves().map((x) => html`<option value="${x.id}" ${String(def.shelf_id) === String(x.id) ? 'selected' : ''}>${x.label || `Regal ${x.code}`}</option>`)}</select></label>
+          <label><span class="label">Ebene</span><select class="select text-sm" data-def="level" ${sh ? '' : 'disabled'}><option value="">egal</option>${Array.from({ length: levels }, (_, i) => html`<option value="${i + 1}" ${String(def.level) === String(i + 1) ? 'selected' : ''}>Ebene ${i + 1}</option>`)}</select></label>
+          <label><span class="label">Eurobox</span><select class="select text-sm" data-def="box_id" ${sh ? '' : 'disabled'}><option value="">lose ins Fach</option>${bx.map((b) => html`<option value="${b.id}" ${String(def.box_id) === String(b.id) ? 'selected' : ''}>E${b.level} · ${b.label}</option>`)}<option value="new" ${def.box_id === 'new' ? 'selected' : ''}>+ Neue Box …</option></select></label>
+          ${def.box_id === 'new' ? html`<label><span class="label">Name neue Box</span><input class="input text-sm" data-def="box_label" value="${def.box_label}" placeholder="z. B. Import Oktober"></label>` : html`<div></div>`}
+        </div>
+        ${hasCsvLoc ? html`<label class="flex items-center gap-2 text-xs text-slate-300 mt-2"><input type="checkbox" class="check !w-4 !h-4" data-def="override" ${def.override ? 'checked' : ''}> Lagerort aus der CSV ignorieren, ALLE Zeilen ins Zielfach</label>` : ''}
+      </div>`;
+  };
   const render = () => {
     setHTML(c, html`
       <div class="card p-4 mb-4">
@@ -456,6 +483,7 @@ function tabImport(c0) {
           <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
             ${IMPORT_FIELDS[target].map(([k, l]) => html`<label><span class="label">${l}</span><select class="select text-sm" data-map="${k}"><option value="">nicht importieren</option>${preview.headers.map((h) => html`<option ${preview.mapping[k] === h ? 'selected' : ''}>${h}</option>`)}</select></label>`)}
           </div>
+          ${routeHtml()}
           <div class="overflow-x-auto rounded-lg border border-white/10 mb-4">
             <table class="text-xs w-full"><thead class="bg-black/40"><tr>${preview.headers.map((h) => html`<th class="text-left px-2 py-1.5 font-semibold text-slate-300 whitespace-nowrap">${h}</th>`)}</tr></thead>
               <tbody>${preview.rows.slice(0, 8).map((r) => html`<tr class="border-t border-white/5">${preview.headers.map((h) => html`<td class="px-2 py-1 text-slate-400 whitespace-nowrap">${r[h]}</td>`)}</tr>`)}</tbody></table>
@@ -470,15 +498,40 @@ function tabImport(c0) {
     target = e.target.target.value;
     try { preview = await upload('/admin/import/preview', new FormData(e.target)); render(); } catch (err) { toastError(err); }
   });
+  // Zielfach-Auswahl merken; Regal/Ebene beeinflussen die Box-Liste
+  c.addEventListener('change', (e) => {
+    const d = e.target.closest('[data-def]');
+    if (d) {
+      const k = d.dataset.def;
+      def[k] = d.type === 'checkbox' ? d.checked : d.value;
+      if (k === 'shelf_id') { def.level = ''; def.box_id = ''; }
+      if (k === 'level') def.box_id = '';
+      if (k !== 'box_label') { remember(); render(); }
+      return;
+    }
+    const m = e.target.closest('[data-map]');
+    if (m && preview) { preview.mapping[m.dataset.map] = m.value || undefined; remember(); render(); }
+  });
+  c.addEventListener('input', (e) => { const d = e.target.closest('[data-def="box_label"]'); if (d) def.box_label = d.value; });
+  // aktuelle Spaltenzuordnung vor jedem Neuzeichnen sichern
+  function remember() { if (!preview) return; c.querySelectorAll('[data-map]').forEach((x) => { preview.mapping[x.dataset.map] = x.value || undefined; }); }
   c.addEventListener('click', async (e) => {
     if (!e.target.closest('[data-commit]')) return;
     const mapping = {};
     c.querySelectorAll('[data-map]').forEach((s) => { if (s.value) mapping[s.dataset.map] = s.value; });
     if (!mapping.name) { toast('Bitte die Spalte für „Name“ zuordnen.', 'warn'); return; }
+    if (def.box_id === 'new' && !String(def.box_label).trim()) { toast('Bitte einen Namen für die neue Box eingeben.', 'warn'); return; }
+    const defaults = def.shelf_id ? {
+      shelf_id: Number(def.shelf_id), level: def.level ? Number(def.level) : null,
+      box_id: def.box_id && def.box_id !== 'new' ? Number(def.box_id) : null,
+      box_label: def.box_id === 'new' ? String(def.box_label).trim() : null, override: !!def.override
+    } : null;
     try {
-      const res = await post('/admin/import/commit', { target, mapping, rows: preview.rows });
+      const res = await post('/admin/import/commit', { target, mapping, rows: preview.rows, defaults });
       toast(`${res.imported} Einträge importiert${res.skipped.length ? `, ${res.skipped.length} leere Zeilen übersprungen` : ''}.`, 'ok', 5000);
       preview = null; render();
+      get('/boxes').then((b) => { boxes = b; }).catch(() => {});
+      if (app.refreshHud) app.refreshHud();
       app.rerenderTab();
     } catch (err) { toastError(err); }
   });

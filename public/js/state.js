@@ -21,6 +21,7 @@ export const store = {
   settings: {},          // v2: z. B. publicUrl für QR-Codes
   hud: null,             // v4: kritische Ressourcen, Verbrauch, Dinge in der Schwebe
   mode: 'hall',          // 'hall' | 'blueprint'
+  bpHidden: (() => { try { return new Set(JSON.parse(localStorage.getItem('halle.bp.hidden') || '[]')); } catch { return new Set(); } })(),   // v5.2: ausgeblendete Blueprint-Layer
   builder: false,        // Admin-Baukasten aktiv?
   adminUnlocked: false   // PIN-Bestätigung für Admin-Werkzeuge
 };
@@ -53,6 +54,18 @@ const LEVEL = { gast: 0, schrauber: 1, admin: 2 };
 export const can = (role) => !!store.me && LEVEL[store.me.role] >= LEVEL[role];
 export const canEdit = () => can('schrauber');
 export const isAdmin = () => can('admin');
+
+/* ---------- v5.2: Blueprint-Layer ---------- */
+export function bpLayerOf(item) {
+  const k = store.meta && store.meta.blueprintKinds && store.meta.blueprintKinds[item.type] && store.meta.blueprintKinds[item.type][item.kind];
+  return (k && k.layer) || item.kind;
+}
+export const bpVisible = (item) => !store.bpHidden.has(bpLayerOf(item));
+export function setBpLayer(layer, visible) {
+  if (visible) store.bpHidden.delete(layer); else store.bpHidden.add(layer);
+  try { localStorage.setItem('halle.bp.hidden', JSON.stringify([...store.bpHidden])); } catch { /* egal */ }
+  emit('bplayers');
+}
 
 /* ---------- Lookups ---------- */
 export const vehicleById = (id) => store.vehicles.find((v) => v.id === Number(id));

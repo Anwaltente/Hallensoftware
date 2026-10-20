@@ -4,7 +4,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { requireRole } = require('../auth');
-const { pick, insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, toNumOrNull, toBool, parseJSON, nowIso } = require('../lib/util');
+const { pick, insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, toNumOrNull, toBool, parseJSON, nowIso, today } = require('../lib/util');
 
 const router = express.Router();
 
@@ -123,7 +123,7 @@ router.post('/tools', (req, res) => {
 router.put('/tools/:id', (req, res) => {
   const current = mustGet('tools', req.params.id, 'Werkzeug');
   const merged = resolveStorage({ ...current, ...pick(req.body, toolSchema, { partial: true }) });
-  for (const k of ['id', 'created_at', 'borrowed_by', 'borrowed_vehicle_id', 'borrowed_at']) delete merged[k];
+  for (const k of ['id', 'created_at', 'borrowed_by', 'borrowed_vehicle_id', 'borrowed_at', 'lent_to', 'lent_at', 'lent_due', 'lent_note']) delete merged[k];
   updateRow('tools', req.params.id, merged);
   res.json(db.prepare(`${TOOL_SELECT} WHERE t.id = ?`).get(req.params.id));
 });
@@ -146,6 +146,45 @@ router.post('/tools/:id/return', (req, res) => {
   mustGet('tools', req.params.id, 'Werkzeug');
   db.prepare('UPDATE tools SET borrowed_by = NULL, borrowed_vehicle_id = NULL, borrowed_at = NULL WHERE id = ?').run(req.params.id);
   res.json(db.prepare(`${TOOL_SELECT} WHERE t.id = ?`).get(req.params.id));
+});
+
+/* ---------------- v5.2: Außerhalb der Halle / Verliehen ---------------- */
+const isoDate = (v) => { const s = strOrNull(v); return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
+
+/** Verleihen an Kumpel / Firma: { to, due (JJJJ-MM-TT), note, date (optional, Standard heute) } */
+router.post('/tools/:id/lend', (req, res) => {
+  const tool = mustGet('tools', req.params.id, 'Werkzeug');
+  if (tool.wishlist) throw httpError(400, 'Wunschlisten-Werkzeug ist noch nicht vorhanden.');
+  const to = strOrNull(req.body.to);
+  if (!to) throw httpError(400, 'An wen wird verliehen?');
+  const date = isoDate(req.body.date);
+  const lentAt = date && date !== today() ? `${date}T12:00:00.000Z` : nowIso();
+  const due = isoDate(req.body.due);
+  if (due && due < lentAt.slice(0, 10)) throw httpError(400, 'Die Rückgabe liegt vor dem Verleihdatum.');
+  const ts = nowIso();
+  db.transaction(() => {
+    db.prepare('UPDATE tools SET lent_to = ?, lent_at = ?, lent_due = ?, lent_note = ?, borrowed_by = NULL, borrowed_vehicle_id = NULL, borrowed_at = NULL WHERE id = ?')
+      .run(to.slice(0, 120), lentAt, due, strOrNull(req.body.note), tool.id);
+    // liegt nicht mehr "rum", es ist ja außer Haus
+    db.prepare("UPDATE float_items SET returned_at = ?, returned_by = ? WHERE kind = 'tool' AND ref_id = ? AND returned_at IS NULL").run(ts, req.user.id, tool.id);
+  })();
+  res.json(db.prepare(`${TOOL_SELECT} WHERE t.id = ?`).get(tool.id));
+});
+
+/** 1 Klick: "Wieder in der Halle". Zurück an den Stammplatz (Regal/Box/Ort bleiben gespeichert). */
+router.post('/tools/:id/back', (req, res) => {
+  const tool = mustGet('tools', req.params.id, 'Werkzeug');
+  const ts = nowIso();
+  db.transaction(() => {
+    db.prepare('UPDATE tools SET lent_to = NULL, lent_at = NULL, lent_due = NULL, lent_note = NULL, borrowed_by = NULL, borrowed_vehicle_id = NULL, borrowed_at = NULL WHERE id = ?').run(tool.id);
+    db.prepare("UPDATE float_items SET returned_at = ?, returned_by = ? WHERE kind = 'tool' AND ref_id = ? AND returned_at IS NULL").run(ts, req.user.id, tool.id);
+  })();
+  res.json(db.prepare(`${TOOL_SELECT} WHERE t.id = ?`).get(tool.id));
+});
+
+/** Bisherige Empfänger (für die Auswahl im Verleih-Dialog) */
+router.get('/tools/lend-names', (_req, res) => {
+  res.json(db.prepare("SELECT DISTINCT lent_to AS name FROM tools WHERE lent_to IS NOT NULL AND lent_to <> '' ORDER BY lent_to").all().map((r) => r.name));
 });
 
 /** Wunschliste -> gekauft: wandert ins Inventar */

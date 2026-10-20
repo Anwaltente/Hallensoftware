@@ -33,7 +33,7 @@
  *   js/biz.js        Büro-/Enterprise-Ansicht (Alt+B / Esc), Profilmenü, ERP-Tabellen
  *   biz.css          Heller Business-Look, aktiv bei <html class="biz">
  */
-import { store, app, subscribe, setState, emit, canEdit, isAdmin, statusInfo, vehicleById, objectById,
+import { store, app, subscribe, setState, emit, canEdit, isAdmin, statusInfo, vehicleById, objectById, setBpLayer, bpLayerOf,
   loadMeta, refreshMeta, refreshAll, refreshWhiteboard, refreshBlueprint, refreshVehicles } from './js/state.js';
 import { post } from './js/api.js';
 import { $, $$, html, setHTML, icon, toast, toastError, haptic, chooseDialog, confirmDialog, initials, on, topModal } from './js/ui.js';
@@ -112,6 +112,22 @@ function renderTicker() {
 function renderLegend() {
   const lg = $('#mapLegend');
   lg.style.display = store.builder ? 'none' : '';
+  lg.classList.toggle('bp-on', store.mode === 'blueprint');
+  // v5.2: Blueprint-Layer einzeln ein-/ausblenden (Druckluft, 230 V, 400 V, Verteilung, Daten)
+  if (store.mode === 'blueprint' && store.meta && store.meta.blueprintLayers) {
+    const counts = {};
+    for (const it of store.blueprint || []) { const l = bpLayerOf(it); counts[l] = (counts[l] || 0) + 1; }
+    setHTML(lg, html`
+      <div class="bp-layers">
+        <div class="flex items-center gap-2 mb-0.5"><span class="font-display text-[10px] font-bold tracking-widest neon-text flex-1">LAYER</span>
+          <button class="text-[10px] text-sky-300 hover:text-white" data-bpall="1">alle</button><span class="text-slate-600">·</span><button class="text-[10px] text-sky-300 hover:text-white" data-bpall="0">keine</button></div>
+        ${Object.entries(store.meta.blueprintLayers).map(([k, l]) => html`
+          <label class="bp-layer ${store.bpHidden.has(k) ? 'off' : ''}" style="--lc:${l.color}" title="${l.hint}">
+            <input type="checkbox" data-bplayer="${k}" ${store.bpHidden.has(k) ? '' : 'checked'}><span class="sw"></span><span>${l.label}</span><small>${counts[k] || 0}</small>
+          </label>`)}
+      </div>`);
+    return;
+  }
   let items;
   if (store.mode === 'blueprint') {
     const k = store.meta ? store.meta.blueprintKinds : { line: {}, node: {} };
@@ -325,6 +341,13 @@ function bindChrome() {
     setMobileView(b.dataset.view);
     if (b.dataset.view === 'map' && app.map) app.map.resize();
   });
+  // v5.2: Blueprint-Layer-Schalter
+  $('#mapLegend').addEventListener('change', (e) => { const c = e.target.closest('[data-bplayer]'); if (c) setBpLayer(c.dataset.bplayer, c.checked); });
+  $('#mapLegend').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-bpall]');
+    if (!b || !store.meta) return;
+    Object.keys(store.meta.blueprintLayers || {}).forEach((k) => setBpLayer(k, b.dataset.bpall === '1'));
+  });
   $('#spotlightBtn').addEventListener('click', openSpotlight);
   $('#spotlightBtnMobile').addEventListener('click', openSpotlight);
   $('#adminBtn').addEventListener('click', openAdminConsole);
@@ -360,6 +383,8 @@ subscribe('biz', () => { renderUserChip(); renderTicker(); renderLegend(); if (s
 subscribe('vehicles', () => { if (activeTab === 'fleet') app.rerenderTab('fleet'); });
 subscribe('events', () => { if (activeTab === 'events') app.rerenderTab('events'); });
 subscribe('builder', () => { renderLegend(); renderMapTopBar(); });
+subscribe('bplayers', renderLegend);                                          // v5.2
+subscribe('blueprint', () => { if (store.mode === 'blueprint') renderLegend(); });
 // v4: Werkzeug-/Lager-Liste neu zeichnen, wenn sich der Schwebe-Status ändert
 let lastFloatSig = '';
 subscribe('hud', () => {

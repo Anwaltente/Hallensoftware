@@ -15,11 +15,45 @@ const { buildPacklist } = require('../lib/packlist');
 const { loadingPlan } = require('../lib/loading');
 const { activeWork } = require('../lib/queries');
 const { hudData } = require('../lib/hub');
-const { strOrNull, toNumOrNull, today, httpError, parseJSON } = require('../lib/util');
+const { strOrNull, toNumOrNull, today, httpError, parseJSON, insertRow, updateRow, mustGet, nowIso } = require('../lib/util');
 
 const router = express.Router();
 
-const DEFAULT_TV = { enabled: true, token: '', interval: 18, screens: { tasks: true, event: true, stock: true, hall: true }, messages: [], weather: null };
+const DEFAULT_TV = { enabled: true, token: '', interval: 18, screens: { tasks: true, event: true, stock: true, hall: true }, messages: [], weather: null, useGrid: false };
+
+/* ---------------- v5.2: TV-Baukasten (Tabelle dashboard_configs) ---------------- */
+const LAYOUTS = { '1x1': 1, split: 2, 'split-h': 2, '3col': 3, '2x2': 4, 'main-side': 3, '3x2': 6 };
+const WIDGETS = ['event', 'work', 'tasks', 'shortage', 'tools', 'hall', 'banner', 'weather', 'empty'];
+function normTiles(layout, tiles) {
+  const n = LAYOUTS[layout] || 4;
+  const arr = Array.isArray(tiles) ? tiles : [];
+  return Array.from({ length: n }, (_, i) => {
+    const t = arr[i] && typeof arr[i] === 'object' ? arr[i] : {};
+    const widget = WIDGETS.includes(t.widget) ? t.widget : 'empty';
+    const out = { widget };
+    const title = strOrNull(t.title);
+    if (title) out.title = title.slice(0, 60);
+    if (widget === 'banner') {
+      out.text = String(t.text || '').slice(0, 600);
+      out.scroll = !!t.scroll;
+      out.tone = ['info', 'warn', 'alarm', 'ok'].includes(t.tone) ? t.tone : 'info';
+    }
+    return out;
+  });
+}
+const serializeDash = (d) => ({ ...d, active: !!d.active, tiles: normTiles(d.layout, parseJSON(d.tiles, [])) });
+const listDash = ({ activeOnly = false } = {}) => db.prepare(`SELECT * FROM dashboard_configs ${activeOnly ? 'WHERE active = 1' : ''} ORDER BY sort, id`).all().map(serializeDash);
+function readDash(b, cur = {}) {
+  const layout = LAYOUTS[b.layout] ? b.layout : (cur.layout || '2x2');
+  const dur = b.duration === undefined ? cur.duration : (b.duration === '' || b.duration === null ? null : Math.min(300, Math.max(5, Math.round(Number(b.duration)) || 0)) || null);
+  return {
+    name: (strOrNull(b.name) || cur.name || 'Seite').slice(0, 60),
+    layout,
+    tiles: JSON.stringify(normTiles(layout, b.tiles !== undefined ? b.tiles : parseJSON(cur.tiles, []))),
+    duration: dur === undefined ? null : dur,
+    active: b.active === undefined ? (cur.active === undefined ? 1 : cur.active) : (b.active ? 1 : 0)
+  };
+}
 const tvConfig = () => ({ ...DEFAULT_TV, ...(getSetting('tv', {}) || {}) });
 
 /* ---------------- Wetter (optional, Open-Meteo, ohne API-Schlüssel) ---------------- */
@@ -104,7 +138,9 @@ router.get('/tv/data', async (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     res.json({
       now: new Date().toISOString(),
-      config: { interval: cfg.interval, screens: cfg.screens, messages: cfg.messages },
+      config: { interval: cfg.interval, screens: cfg.screens, messages: cfg.messages, useGrid: !!cfg.useGrid },
+      // v5.2: eigene Dashboard-Seiten (Vorschau einer Seite aus dem Admin auch, wenn sie noch nicht aktiv ist)
+      slides: req.query.preview ? listDash() : (cfg.useGrid ? listDash({ activeOnly: true }) : []),
       hall: { name: hall.name },
       work: activeWork(),
       tasks: { urgent: wb.urgent.slice(0, 8), hall: wb.hall.slice(0, 6), backlog: wb.backlog.length },
@@ -136,6 +172,7 @@ router.put('/admin/tv', requireRole('admin'), (req, res) => {
   const next = {
     ...cur,
     enabled: b.enabled !== undefined ? !!b.enabled : cur.enabled,
+    useGrid: b.useGrid !== undefined ? !!b.useGrid : !!cur.useGrid,
     interval: Math.min(120, Math.max(5, Number(b.interval) || cur.interval)),
     screens,
     messages: Array.isArray(b.messages) ? b.messages.map((m) => String(m).trim()).filter(Boolean).slice(0, 20) : cur.messages,
@@ -145,6 +182,35 @@ router.put('/admin/tv', requireRole('admin'), (req, res) => {
   setSetting('tv', next);
   weatherCache = { at: 0, key: '', data: null };
   res.json(next);
+});
+
+/* ---------------- v5.2: Dashboard-Seiten (Baukasten) ---------------- */
+router.get('/admin/dashboards', requireRole('admin'), (_req, res) => {
+  const cfg = tvConfig();
+  res.json({ useGrid: !!cfg.useGrid, interval: cfg.interval, layouts: LAYOUTS, widgets: WIDGETS, slides: listDash() });
+});
+
+router.post('/admin/dashboards', requireRole('admin'), (req, res) => {
+  const max = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM dashboard_configs').get().m;
+  const id = insertRow('dashboard_configs', { ...readDash(req.body || {}), sort: max + 10, created_at: nowIso() });
+  res.status(201).json(serializeDash(mustGet('dashboard_configs', id, 'Seite')));
+});
+
+router.put('/admin/dashboards/:id', requireRole('admin'), (req, res) => {
+  const cur = mustGet('dashboard_configs', req.params.id, 'Seite');
+  updateRow('dashboard_configs', cur.id, { ...readDash(req.body || {}, cur), updated_at: nowIso() });
+  res.json(serializeDash(mustGet('dashboard_configs', cur.id, 'Seite')));
+});
+
+router.delete('/admin/dashboards/:id', requireRole('admin'), (req, res) => {
+  db.prepare('DELETE FROM dashboard_configs WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+router.post('/admin/dashboards/order', requireRole('admin'), (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+  db.transaction(() => { ids.forEach((id, i) => db.prepare('UPDATE dashboard_configs SET sort = ? WHERE id = ?').run((i + 1) * 10, id)); })();
+  res.json(listDash());
 });
 
 router.post('/admin/tv/regenerate', requireRole('admin'), (_req, res) => {

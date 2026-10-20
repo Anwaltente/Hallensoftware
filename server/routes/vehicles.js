@@ -137,6 +137,28 @@ router.post('/:id/move', (req, res) => {
 });
 
 /* ---------- Admin-Konverter: Rad-/Reifen-Kombis & TÜV in Textform ---------- */
+/* ---------------- v5.2: Quick Specs (Spickzettel) ---------------- */
+const QS_NUM = ['wheel_torque', 'engine_oil_l', 'gearbox_oil_l', 'diff_oil_l', 'coolant_l', 'spark_gap', 'p_cold_front', 'p_cold_rear', 'p_warm_front', 'p_warm_rear'];
+const QS_TXT = ['wheel_bolt', 'engine_oil_type', 'gearbox_oil_type', 'diff_oil_type', 'coolant_type', 'spark_type', 'notes'];
+router.put('/:id/quick-specs', (req, res) => {
+  mustGet('vehicles', req.params.id, 'Fahrzeug');
+  const b = req.body || {};
+  const out = {};
+  for (const k of QS_NUM) {
+    const raw = b[k];
+    if (raw === '' || raw === null || raw === undefined) continue;
+    const n = Number(String(raw).replace(',', '.'));
+    if (Number.isFinite(n) && n >= 0 && n < 100000) out[k] = Math.round(n * 1000) / 1000;
+  }
+  for (const k of QS_TXT) { const v = strOrNull(b[k]); if (v) out[k] = v.slice(0, k === 'notes' ? 2000 : 120); }
+  if (Array.isArray(b.extra)) {
+    out.extra = b.extra.map((x) => ({ label: strOrNull(x && x.label), value: strOrNull(x && x.value) }))
+      .filter((x) => x.label && x.value).slice(0, 30).map((x) => ({ label: x.label.slice(0, 60), value: x.value.slice(0, 120) }));
+  }
+  updateRow('vehicles', req.params.id, { quick_specs: JSON.stringify(out) });
+  res.json({ quick_specs: out });
+});
+
 router.put('/:id/specs', requireRole('admin'), (req, res) => {
   mustGet('vehicles', req.params.id, 'Fahrzeug');
   const specs = Array.isArray(req.body.wheel_specs) ? req.body.wheel_specs : [];
