@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "reset-db": "node server.js --reset"
+    "reset-db": "node server.js --reset",
+    "turso:import": "node scripts/turso-import.js",
+    "turso:backup": "node scripts/turso-backup.js"
   },
   "engines": {
     "node": ">=20"

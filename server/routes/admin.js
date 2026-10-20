@@ -7,7 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
-const { db, getSetting, setSetting, hashPin, BACKUP_DIR } = require('../db');
+const { db, getSetting, setSetting, hashPin, BACKUP_DIR, USING_TURSO } = require('../db');
 const { requireRole } = require('../auth');
 const { parseCSV, suggestMapping } = require('../lib/csv');
 const { getModels } = require('../lib/vehicleModels');
@@ -204,8 +204,8 @@ router.post('/admin/import/commit', admin, (req, res) => {
 
   let imported = 0;
   const skipped = [];
-  db.transaction(() => {
-    rows.forEach((row, idx) => {
+  // v5.1: Mit Turso in Etappen speichern (eine Cloud-Transaktion darf nur wenige Sekunden dauern)
+  const importRow = (row, idx) => {
       const name = get(row, 'name');
       if (!name) { skipped.push(idx + 2); return; }
       const shelf = findShelf(get(row, 'shelf'));
@@ -238,8 +238,17 @@ router.post('/admin/import/commit', admin, (req, res) => {
         insertRow('tools', { ...base, location_text: strOrNull(get(row, 'location')), price: toNumOrNull(get(row, 'price')) });
       }
       imported += 1;
-    });
-  })();
+  };
+  if (!USING_TURSO) db.transaction(() => rows.forEach(importRow))();
+  else {
+    let i = 0;
+    while (i < rows.length) {
+      db.transaction(() => {
+        const t0 = Date.now();
+        do { importRow(rows[i], i); i += 1; } while (i < rows.length && Date.now() - t0 < 1500);
+      })();
+    }
+  }
   res.json({ imported, skipped });
 });
 

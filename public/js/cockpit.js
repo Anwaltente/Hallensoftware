@@ -122,11 +122,12 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
     const done = data.tasks.filter((t) => t.status === 'done').slice(-8).reverse();
     setHTML(content, html`
       ${canEdit() ? html`
-        <form class="card p-3 mb-4 grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2" data-form="task">
-          <input class="input" name="title" placeholder="Neue Aufgabe, z. B. Querlenker tauschen" required>
+        <form class="card p-3 mb-4 grid grid-cols-2 sm:grid-cols-[1fr_auto_auto] gap-2" data-form="task">
+          <input class="input col-span-2 sm:col-span-1" name="title" placeholder="Neue Aufgabe, z. B. Querlenker tauschen" required>
           <select class="select" name="priority"><option value="1">Prio hoch</option><option value="2" selected>Normal</option><option value="3">Niedrig</option></select>
           <button class="btn btn-primary">${icon('plus')} Hinzufügen</button>
-          <input class="input sm:col-span-3 text-sm" name="description" placeholder="Details (optional)">
+          <input class="input col-span-2 sm:col-span-2 text-sm" name="description" placeholder="Details (optional)">
+          <input class="input col-span-2 sm:col-span-1 text-sm sm:!w-36" name="cost" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Preis €" title="Optional: Preis, erscheint automatisch im Budget">
         </form>
         <div class="flex items-center gap-2 mb-3 text-xs text-slate-400">
           <label class="flex items-center gap-2">Km-Stand fürs Protokoll <input class="input !w-32 !py-1 text-sm" type="number" data-mileage placeholder="${data.vehicle.mileage || ''}"></label>
@@ -138,9 +139,11 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
             <div class="flex-1 min-w-0">
               <div class="font-semibold text-white">${t.title}</div>
               ${t.description ? html`<div class="text-sm text-slate-400">${t.description}</div>` : ''}
-              <div class="text-[11px] text-slate-500 mt-1">angelegt ${fmtDate(t.created_at)}${t.created_by_name ? ` von ${t.created_by_name}` : ''}</div>
+              <div class="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-2">angelegt ${fmtDate(t.created_at)}${t.created_by_name ? ` von ${t.created_by_name}` : ''}
+                ${t.cost ? html`<span class="text-amber-300">${euro(t.cost)} · im Budget</span>` : ''}</div>
             </div>
             ${canEdit() ? html`
+              <button class="btn-icon" data-taskcost="${t.id}" title="Preis festlegen (erscheint automatisch im Budget)">${icon('euro')}</button>
               <button class="btn-icon" data-worktask="${t.id}" title="Ich schraube daran">${icon('wrench')}</button>
               <button class="btn-icon hover:!text-rose-300" data-deltask="${t.id}" title="Löschen">${icon('trash')}</button>` : ''}
           </div>`) : html`<div class="card p-6 text-center text-slate-400">${icon('check', 'w-6 h-6 mx-auto mb-2 text-lime-400')}Keine offenen Aufgaben. Fahrbereit?</div>`}
@@ -225,10 +228,12 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
           ${list.map((p) => html`
             <div class="flex items-center gap-2 rounded-md bg-black/25 px-2.5 py-2 text-sm">
               <div class="flex-1 min-w-0"><div class="text-white truncate">${p.url ? html`<a href="${p.url}" target="_blank" rel="noopener" class="hover:text-cyan-300">${p.name} ↗</a>` : p.name}</div>
-                <div class="text-[11px] text-slate-500">${p.qty} × ${euro(p.price)}${p.bought_at ? ` · gekauft ${fmtDate(p.bought_at)}` : ''}</div></div>
+                <div class="text-[11px] text-slate-500">${p.qty} × ${euro(p.price)}${p.bought_at ? ` · ${p.log_id ? 'erledigt' : 'gekauft'} ${fmtDate(p.bought_at)}` : ''}
+                  ${p.log_id ? html` · <span class="text-cyan-300">aus Wartungsheft</span>` : p.task_id ? html` · <span class="text-cyan-300">aus Aufgabe</span>` : ''}</div></div>
               <span class="font-mono text-xs text-slate-300">${euro(p.price * p.qty)}</span>
-              ${canEdit() ? html`<button class="btn btn-sm" data-buytoggle="${p.id}" data-to="${p.status === 'todo' ? 'bought' : 'todo'}">${toggleLabel}</button>
-                <button class="btn-icon !w-7 !h-7 hover:!text-rose-300" data-delbuy="${p.id}">${icon('trash', 'w-3.5 h-3.5')}</button>` : ''}
+              ${canEdit() && !p.log_id ? html`<button class="btn btn-sm" data-buytoggle="${p.id}" data-to="${p.status === 'todo' ? 'bought' : 'todo'}">${toggleLabel}</button>` : ''}
+              ${canEdit() && !p.log_id && !p.task_id ? html`<button class="btn-icon !w-7 !h-7 hover:!text-rose-300" data-delbuy="${p.id}">${icon('trash', 'w-3.5 h-3.5')}</button>` : ''}
+              ${p.log_id || p.task_id ? html`<span class="w-7 text-center text-slate-500" title="Wird automatisch geführt. Ändern in ${p.log_id ? 'Wartungsheft' : 'Aufgaben'}.">${icon('link', 'w-3.5 h-3.5 inline')}</span>` : ''}
             </div>`)}
           ${!list.length ? html`<p class="text-sm text-slate-500">Leer.</p>` : ''}
         </div>
@@ -242,6 +247,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
           <button class="btn btn-primary col-span-2 sm:col-span-1">${icon('plus')} Auf die Liste</button>
           <input class="input col-span-2 sm:col-span-4 text-sm" name="url" placeholder="Link zum Shop (optional)">
         </form>` : ''}
+      <p class="text-[11px] text-slate-500 mb-3">${icon('link', 'w-3 h-3 inline')} Preise aus Aufgaben und Kosten aus dem Wartungsheft erscheinen hier automatisch, ohne doppelte Eingabe.</p>
       <div class="grid md:grid-cols-2 gap-3">
         ${col('NOCH ZU KAUFEN', todo, data.budget.todo, 'text-amber-300', 'Gekauft ✓')}
         ${col('BEREITS GEKAUFT', bought, data.budget.bought, 'text-lime-300', '↺')}
@@ -479,8 +485,20 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
         haptic([10, 30, 10]);
         const mileage = content.querySelector('[data-mileage]');
         await post(`/tasks/${ds.done}/done`, { mileage: mileage && mileage.value ? Number(mileage.value) : null });
-        toast('Erledigt und ins Wartungsheft übertragen.', 'ok');
+        const t = data.tasks.find((x) => x.id === Number(ds.done));
+        toast(t && t.cost ? `Erledigt: Wartungsheft und Budget (${euro(t.cost)}) aktualisiert.` : 'Erledigt und ins Wartungsheft übertragen.', 'ok');
         await reload(); refreshWhiteboard();
+      } else if (ds.taskcost) {
+        const t = data.tasks.find((x) => x.id === Number(ds.taskcost));
+        const REMOVE = 'Preis entfernen';
+        const val = await chooseDialog({ title: 'Preis der Aufgabe', text: `${t ? t.title : ''}: Betrag in Euro. Er erscheint automatisch im Budget unter „Noch zu kaufen“ und wandert beim Abhaken nach „Bereits gekauft“.`,
+          choices: t && t.cost ? [REMOVE] : [], allowText: true, placeholder: t && t.cost ? `aktuell ${String(t.cost).replace('.', ',')} €` : 'z. B. 89,90', okLabel: 'Übernehmen' });
+        if (val === null || val === undefined) return;
+        const cost = val === REMOVE ? '' : String(val).replace(/[€\s]/g, '');
+        if (cost && !(Number(cost.replace(',', '.')) > 0)) { toast('Bitte einen Betrag eingeben, z. B. 89,90.', 'warn'); return; }
+        await put(`/tasks/${ds.taskcost}`, { cost });
+        toast(cost ? 'Preis gespeichert und im Budget geführt.' : 'Preis entfernt.', 'ok');
+        await reload();
       } else if (ds.worktask) {
         await post('/work', { task_id: Number(ds.worktask), vehicle_id: id });
         toast('Eingetragen: du schraubst daran.', 'ok');
@@ -526,7 +544,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
         haptic(8); await reload(); refreshWhiteboard();
       } else if (kind === 'log') {
         await post('/log', { ...formData(form), vehicle_id: id });
-        toast('Ins Wartungsheft eingetragen.', 'ok'); await reload({ vehiclesToo: false });
+        toast(form.cost && Number(String(form.cost.value).replace(',', '.')) > 0 ? 'Ins Wartungsheft eingetragen, Kosten stehen im Budget.' : 'Ins Wartungsheft eingetragen.', 'ok'); await reload();
       } else if (kind === 'buy') {
         await post('/purchases', { ...formData(form), vehicle_id: id });
         await reload();

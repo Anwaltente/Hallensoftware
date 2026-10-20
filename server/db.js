@@ -14,12 +14,19 @@
  * v4.1: neue Spalten in vehicles für Radstand, Spurweiten, Reifenbreiten (nur ADD COLUMN)
  * v4.2: neue Spalten in parts (Gebinde), neue Tabelle shopping_list
  *
+ * v5.1: neue Spalten tasks.cost, purchases.task_id, purchases.log_id (Budget-Kopplung)
+ *
  * Speicherort: ./data/halle.db (überschreibbar via DATA_DIR)
+ *              oder Turso (libSQL in der Cloud), wenn TURSO_DATABASE_URL + TURSO_AUTH_TOKEN gesetzt sind (lib/turso/)
  */
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const Database = require('better-sqlite3');
+const { tursoConfig } = require('./lib/turso/config');
+
+// v5.1: Turso (libSQL in der Cloud), sobald TURSO_DATABASE_URL + TURSO_AUTH_TOKEN gesetzt sind; sonst lokal data/halle.db
+const TURSO = tursoConfig();
+const Database = TURSO ? null : require('better-sqlite3');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
@@ -52,6 +59,9 @@ function startupBackup() {
 }
 
 // "npm run reset-db" löscht NICHTS mehr: die alte Datenbank wird nach data/backups/reset-<Zeit>/ verschoben.
+if (process.argv.includes('--reset') && TURSO) {
+  throw new Error('[db] --reset ist mit Turso gesperrt: Die Cloud-Datenbank wird nie automatisch geleert.');
+}
 if (process.argv.includes('--reset') && fs.existsSync(DB_FILE)) {
   const target = path.join(BACKUP_DIR, `reset-${stamp()}`);
   fs.mkdirSync(target, { recursive: true });
@@ -59,12 +69,50 @@ if (process.argv.includes('--reset') && fs.existsSync(DB_FILE)) {
   console.log(`[db] Alte Datenbank verschoben nach ${target}. Es wird eine neue angelegt.`);
 }
 
-const IS_NEW_DB = !fs.existsSync(DB_FILE);
-startupBackup();
-
-const db = new Database(DB_FILE);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+let db;
+let IS_NEW_DB;
+if (TURSO) {
+  const { TursoDatabase, dumpToFile } = require('./lib/turso/database');
+  db = new TursoDatabase({ url: TURSO.url, token: TURSO.token });
+  console.log(`[db] Datenbank: Turso ${TURSO.host} (Adresse aus ${TURSO.urlKey}${TURSO.tokenKey ? `, Token aus ${TURSO.tokenKey}` : ', OHNE Token'})`);
+  let tables;
+  try {
+    tables = db.ping();
+  } catch (err) {
+    throw new Error(`[db] Turso nicht erreichbar: ${err.message}`);
+  }
+  const hasUsers = tables > 0 && !!db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
+  IS_NEW_DB = !hasUsers;
+  if (IS_NEW_DB && !/^(1|ja|yes|true)$/i.test(String(process.env.HALLE_TURSO_INIT || ''))) {
+    // Schutz: Eine leere Cloud-Datenbank wird NICHT automatisch mit Beispieldaten gefüllt,
+    // sonst ließe sich der echte Bestand danach nicht mehr sauber importieren.
+    throw new Error([
+      '[db] Die Turso-Datenbank ist noch leer.',
+      '     1) Bestehende Daten hochladen (auf dem Rechner mit data/halle.db):  npm run turso:import',
+      '     2) Oder bewusst neu anfangen (Beispieldaten): Umgebungsvariable HALLE_TURSO_INIT=1 setzen und neu starten.'
+    ].join('\n'));
+  }
+  // Sicherheitskopie der Cloud-Datenbank vor den Migrationen (wie bisher bei der lokalen Datei)
+  if (!IS_NEW_DB && !process.env.HALLE_NO_AUTOBACKUP) {
+    try {
+      const autoDir = path.join(BACKUP_DIR, 'auto');
+      const target = path.join(autoDir, stamp());
+      fs.mkdirSync(target, { recursive: true });
+      dumpToFile(db, path.join(target, 'halle.db'));
+      const dirs = fs.readdirSync(autoDir).filter((d) => fs.statSync(path.join(autoDir, d)).isDirectory()).sort();
+      for (const d of dirs.slice(0, Math.max(0, dirs.length - 20))) fs.rmSync(path.join(autoDir, d), { recursive: true, force: true });
+      console.log(`[db] Sicherungskopie der Turso-Datenbank angelegt: ${path.relative(process.cwd(), target)}`);
+    } catch (err) {
+      console.warn('[db] Sicherungskopie der Turso-Datenbank fehlgeschlagen (Start läuft weiter):', err.message);
+    }
+  }
+} else {
+  IS_NEW_DB = !fs.existsSync(DB_FILE);
+  startupBackup();
+  db = new Database(DB_FILE);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+}
 
 const NOW = "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
 
@@ -417,6 +465,10 @@ ensureColumn('parts', 'pack_size', 'REAL');            // Gebindemenge, z. B. 5
 ensureColumn('parts', 'pack_unit', 'TEXT');            // Einheit, z. B. L, Stk, Dosen
 ensureColumn('parts', 'consumable_id', 'INTEGER');     // Kategorie der Kritischen Liste (consumables.id)
 ensureColumn('parts', 'open_rest', 'REAL');            // Restmenge im angebrochenen Gebinde (leer = keins offen)
+// v5.1: Kosten aus Aufgaben und Wartungsheft fließen automatisch ins Budget (ein Datensatz, keine Doppelung)
+ensureColumn('tasks', 'cost', 'REAL');                 // Preis / geplante Kosten einer Aufgabe
+ensureColumn('purchases', 'task_id', 'INTEGER');       // Budget-Zeile gehört zu dieser Aufgabe
+ensureColumn('purchases', 'log_id', 'INTEGER');        // Budget-Zeile gehört zu diesem Wartungsheft-Eintrag
 
 /* ---------- v3: neue Tabellen (nur CREATE TABLE IF NOT EXISTS) ---------- */
 db.exec(`
@@ -912,4 +964,44 @@ seedV2();
   }
 })();
 
-module.exports = { db, DATA_DIR, UPLOAD_DIR, BACKUP_DIR, getSetting, setSetting, hashPin, IS_NEW_DB };
+/*
+ * v5.1: Bisherige Wartungsheft-Einträge mit Kosten einmalig ins Budget übernehmen.
+ * - Gibt es im Budget desselben Fahrzeugs schon einen GEKAUFTEN Artikel mit genau diesem Betrag
+ *   (also bisher doppelt eingetragen), wird er nur verknüpft (neue Spalte log_id). Betrag, Name, Status bleiben.
+ * - Sonst kommt eine NEUE Budget-Zeile "gekauft" dazu. Bestehende Zeilen werden nie geändert oder gelöscht.
+ * - Verbrauchsbuchungen aus dem Schnell-Verbrauch zählen nicht (das Material wurde schon beim Einkauf erfasst).
+ */
+(function migrateV51Budget() {
+  try {
+    if (getSetting('mig_v51_budget')) return;
+    const logs = db.prepare(`SELECT * FROM maintenance_log WHERE cost IS NOT NULL AND cost > 0
+      AND NOT (title LIKE 'Verbrauch:%' AND COALESCE(description, '') LIKE 'Schnell-Verbrauch%') ORDER BY id`).all();
+    const linked = db.prepare('SELECT id FROM purchases WHERE log_id = ?');
+    const candidates = db.prepare(`SELECT * FROM purchases WHERE vehicle_id IS ? AND status = 'bought' AND log_id IS NULL AND task_id IS NULL
+      AND ABS(price * qty - ?) < 0.005`);
+    const link = db.prepare('UPDATE purchases SET log_id = ? WHERE id = ? AND log_id IS NULL');
+    const ins = db.prepare(`INSERT INTO purchases (vehicle_id, name, price, qty, status, bought_at, created_at, log_id)
+      VALUES (?, ?, ?, 1, 'bought', ?, ?, ?)`);
+    let n = 0;
+    let m = 0;
+    // ohne große Transaktion: jeder Schritt ist für sich vollständig und wird bei einem Abbruch beim nächsten Start
+    // einfach fortgesetzt (bereits verknüpfte Einträge werden übersprungen)
+    for (const l of logs) {
+      if (linked.get(l.id)) continue;
+      const cand = candidates.all(l.vehicle_id, l.cost);
+      const title = String(l.title || '').toLowerCase();
+      const best = cand.find((p) => String(p.name || '').toLowerCase() === title) || cand[0];
+      if (best) { link.run(l.id, best.id); m += 1; continue; }
+      ins.run(l.vehicle_id, l.title || 'Wartung', l.cost, l.done_at || null, new Date().toISOString(), l.id);
+      n += 1;
+    }
+    if (n || m) console.log(`[db] v5.1: ${n} Wartungsheft-Kosten ins Budget übernommen, ${m} vorhandene Budget-Einträge verknüpft (keine Doppelung).`);
+    setSetting('mig_v51_budget', true);
+  } catch (e) {
+    console.warn('[db] v5.1-Budget-Übernahme übersprungen:', e.message);
+  }
+})();
+
+if (TURSO) console.log(`[db] Turso bereit (${db.stats.requests} Anfragen beim Start, ${db.stats.ms} ms).`);
+
+module.exports = { db, DATA_DIR, UPLOAD_DIR, BACKUP_DIR, getSetting, setSetting, hashPin, IS_NEW_DB, USING_TURSO: !!TURSO };

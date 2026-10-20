@@ -9,6 +9,7 @@ const { db, UPLOAD_DIR } = require('../db');
 const { buildWhiteboard } = require('../lib/whiteboard');
 const { activeWork } = require('../lib/queries');
 const { pick, insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, toNumOrNull, nowIso } = require('../lib/util');
+const budget = require('../lib/budget');   // v5.1: Kosten automatisch im Budget
 
 const router = express.Router();
 
@@ -20,7 +21,8 @@ const taskSchema = {
   vehicle_id: toIntOrNull,
   title: (v) => strOrNull(v) || 'Neue Aufgabe',
   description: strOrNull,
-  priority: (v) => Math.min(3, Math.max(1, toIntOrNull(v) || 2))
+  priority: (v) => Math.min(3, Math.max(1, toIntOrNull(v) || 2)),
+  cost: (v) => budget.money(toNumOrNull(v))    // v5.1: Preis der Aufgabe (leer = keiner)
 };
 
 router.get('/tasks', (req, res) => {
@@ -34,17 +36,27 @@ router.get('/tasks', (req, res) => {
 });
 
 router.post('/tasks', (req, res) => {
-  const id = insertRow('tasks', { ...pick(req.body, taskSchema), created_by: req.user.id, created_at: nowIso() });
+  let id;
+  db.transaction(() => {
+    id = insertRow('tasks', { ...pick(req.body, taskSchema), created_by: req.user.id, created_at: nowIso() });
+    budget.syncTask(id);
+  })();
   res.status(201).json(mustGet('tasks', id));
 });
 
 router.put('/tasks/:id', (req, res) => {
-  updateRow('tasks', req.params.id, pick(req.body, taskSchema, { partial: true }));
+  db.transaction(() => {
+    updateRow('tasks', req.params.id, pick(req.body, taskSchema, { partial: true }));
+    budget.syncTask(Number(req.params.id));
+  })();
   res.json(mustGet('tasks', req.params.id));
 });
 
 router.delete('/tasks/:id', (req, res) => {
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
+  db.transaction(() => {
+    budget.taskDeleted(Number(req.params.id));
+    db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
+  })();
   res.json({ ok: true });
 });
 
@@ -53,18 +65,22 @@ router.post('/tasks/:id/done', (req, res) => {
   const task = mustGet('tasks', req.params.id, 'Aufgabe');
   if (task.status === 'done') throw httpError(409, 'Aufgabe ist bereits erledigt.');
   const ts = nowIso();
+  // v5.1: Kosten = beim Abhaken angegeben, sonst der Preis der Aufgabe
+  const cost = budget.money(toNumOrNull(req.body && req.body.cost)) || budget.money(task.cost);
   const tx = db.transaction(() => {
     db.prepare("UPDATE tasks SET status = 'done', done_by = ?, done_at = ? WHERE id = ?").run(req.user.id, ts, task.id);
+    let logId = null;
     if (task.vehicle_id) {
       const mileage = toIntOrNull(req.body && req.body.mileage);
-      insertRow('maintenance_log', {
+      logId = insertRow('maintenance_log', {
         vehicle_id: task.vehicle_id, title: task.title,
         description: strOrNull(req.body && req.body.note) || task.description,
-        mileage, cost: toNumOrNull(req.body && req.body.cost),
+        mileage, cost,
         done_at: ts, user_id: req.user.id, task_id: task.id
       });
       if (mileage) db.prepare('UPDATE vehicles SET mileage = MAX(COALESCE(mileage, 0), ?) WHERE id = ?').run(mileage, task.vehicle_id);
     }
+    budget.taskDone(task, logId, cost, ts);
     db.prepare('UPDATE work_sessions SET ended_at = ? WHERE task_id = ? AND ended_at IS NULL').run(ts, task.id);
   });
   tx();
@@ -73,8 +89,11 @@ router.post('/tasks/:id/done', (req, res) => {
 
 router.post('/tasks/:id/reopen', (req, res) => {
   const task = mustGet('tasks', req.params.id, 'Aufgabe');
-  db.prepare("UPDATE tasks SET status = 'open', done_by = NULL, done_at = NULL WHERE id = ?").run(task.id);
-  db.prepare('DELETE FROM maintenance_log WHERE task_id = ?').run(task.id);
+  db.transaction(() => {
+    db.prepare("UPDATE tasks SET status = 'open', done_by = NULL, done_at = NULL WHERE id = ?").run(task.id);
+    db.prepare('DELETE FROM maintenance_log WHERE task_id = ?').run(task.id);
+    budget.taskReopened(task);
+  })();
   res.json(mustGet('tasks', task.id));
 });
 
@@ -92,20 +111,27 @@ router.get('/log', (req, res) => {
 router.post('/log', (req, res) => {
   const vehicleId = toIntOrNull(req.body.vehicle_id);
   if (!vehicleId) throw httpError(400, 'Fahrzeug fehlt.');
-  const id = insertRow('maintenance_log', {
-    vehicle_id: vehicleId,
-    title: strOrNull(req.body.title) || 'Eintrag',
-    description: strOrNull(req.body.description),
-    mileage: toIntOrNull(req.body.mileage),
-    cost: toNumOrNull(req.body.cost),
-    done_at: strOrNull(req.body.done_at) || nowIso(),
-    user_id: req.user.id
-  });
+  let id;
+  db.transaction(() => {
+    id = insertRow('maintenance_log', {
+      vehicle_id: vehicleId,
+      title: strOrNull(req.body.title) || 'Eintrag',
+      description: strOrNull(req.body.description),
+      mileage: toIntOrNull(req.body.mileage),
+      cost: budget.money(toNumOrNull(req.body.cost)),
+      done_at: strOrNull(req.body.done_at) || nowIso(),
+      user_id: req.user.id
+    });
+    budget.syncLog(id);   // v5.1: Kosten stehen automatisch im Budget
+  })();
   res.status(201).json(mustGet('maintenance_log', id));
 });
 
 router.delete('/log/:id', (req, res) => {
-  db.prepare('DELETE FROM maintenance_log WHERE id = ?').run(req.params.id);
+  db.transaction(() => {
+    budget.logDeleted(Number(req.params.id));
+    db.prepare('DELETE FROM maintenance_log WHERE id = ?').run(req.params.id);
+  })();
   res.json({ ok: true });
 });
 
@@ -130,8 +156,16 @@ router.post('/purchases', (req, res) => {
   res.status(201).json(mustGet('purchases', id));
 });
 
+// v5.1: Zeilen aus Aufgaben / Wartungsheft werden dort gepflegt (sonst entstünden wieder zwei Wahrheiten)
+const LINKED_MSG = 'Dieser Betrag kommt automatisch aus einer Aufgabe bzw. dem Wartungsheft. Bitte dort ändern.';
+
 router.put('/purchases/:id', (req, res) => {
+  const cur = mustGet('purchases', req.params.id, 'Eintrag');
   const data = pick(req.body, buySchema, { partial: true });
+  if (cur.task_id || cur.log_id) {
+    // erlaubt: geplante Aufgaben-Kosten als "gekauft" markieren (Teil schon besorgt) und zurück
+    if (cur.log_id || Object.keys(data).some((k) => req.body[k] !== undefined)) throw httpError(409, LINKED_MSG);
+  }
   if (req.body.status === 'bought' || req.body.status === 'todo') {
     data.status = req.body.status;
     data.bought_at = req.body.status === 'bought' ? nowIso() : null;
@@ -141,6 +175,8 @@ router.put('/purchases/:id', (req, res) => {
 });
 
 router.delete('/purchases/:id', (req, res) => {
+  const cur = db.prepare('SELECT * FROM purchases WHERE id = ?').get(req.params.id);
+  if (cur && (cur.task_id || cur.log_id)) throw httpError(409, LINKED_MSG);
   db.prepare('DELETE FROM purchases WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });

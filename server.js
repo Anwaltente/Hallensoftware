@@ -11,6 +11,7 @@
  *   HALLE_TZ    (Standard Europe/Berlin: für "heute" im Deadline-Algorithmus)
  *   TRUST_PROXY (z. B. "loopback", wenn hinter nginx; für korrekte IP + Secure-Cookies)
  *   GEMINI_API_KEY (v4.1, optional: KI-Serienmaße; am einfachsten in der Datei .env)
+ *   TURSO_DATABASE_URL + TURSO_AUTH_TOKEN (v5.1, optional: Datenbank in Turso statt data/halle.db)
  *
  * Aufbau:
  *   server/db.js            Schema, Migrationen, Initialdaten

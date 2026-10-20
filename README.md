@@ -143,6 +143,19 @@ Bestehende Datenbanken werden beim Start automatisch migriert (neue Tabellen, ne
   "Setup & Maße" die Kennzahlentabelle "Fahrwerksgeometrie & Prüfprotokoll" (druckbar).
 * Rein optisch: keine Server- oder Datenbankänderung.
 
+## Neu in Version 5.1: Turso (Datenbank in der Cloud) und Budget-Kopplung
+
+* **Turso:** Sind `TURSO_DATABASE_URL` (`libsql://...turso.io`) und `TURSO_AUTH_TOKEN` gesetzt (Render: Environment, lokal: `.env`),
+  liegen alle Daten in Turso statt in `data/halle.db`. Ohne die Variablen läuft alles wie bisher lokal.
+  * Bestehende Daten einmalig hochladen: `npm run turso:import` (liest `data/halle.db` nur, prüft am Ende jede Tabelle).
+  * Eine leere Turso-Datenbank wird beim Start **nicht** mit Beispieldaten gefüllt: der Server meldet sich mit einem Hinweis.
+    Wer bewusst neu anfangen will, setzt einmalig `HALLE_TURSO_INIT=1`.
+  * Sicherung als normale SQLite-Datei: `npm run turso:backup` (zusätzlich wie bisher automatisch bei jedem Start und per Admin-Konsole).
+  * Schreiben geht immer direkt in Turso, Lesen kommt aus einem Spiegel im Arbeitsspeicher (schnell wie lokal).
+* **Budget-Kopplung:** Preis bei einer Aufgabe (Feld "Preis €" oder €-Knopf) steht automatisch im Budget unter "Noch zu kaufen"
+  und wandert beim Abhaken nach "Bereits gekauft". Kosten bei einem manuellen Wartungsheft-Eintrag stehen automatisch unter
+  "Bereits gekauft". Pro Vorgang gibt es genau eine Budget-Zeile (Markierung "aus Aufgabe" / "aus Wartungsheft").
+
 ## Projektstruktur
 
 ```
@@ -161,6 +174,8 @@ server/
     hub.js                 v4: Restbestand, kritischer Mangel, Einkaufsliste, Schwebe-Liste
     dims.js                v4.1: Radaußenbreite (Spur + Reifenbreite)
     stock.js               v4.2: Gebinde-Summe und Abzug (angebrochen zuerst, dann kleinstes Gebinde)
+    budget.js              v5.1: Kosten aus Aufgaben und Wartungsheft automatisch im Budget
+    turso/                 v5.1: Turso-Anbindung (config.js, database.js, replica.js, sync-http.js)
     queries.js, util.js    Gemeinsame Abfragen und Helfer
   routes/
     auth.js                Login, Hall Pass, PIN-Bestätigung
@@ -211,6 +226,8 @@ public/
     dims.js                v4.1: Radmaße-Formular + KI-Auto-Fill
     biz.js                 v5: Büro-Ansicht, Alt+B / Esc, Profilmenü, ERP-Tabellen
   tv.html, tv.css, tv.js   v3: Hallen-TV (eigenständige Kiosk-Seite unter /tv)
+scripts/turso-import.js    v5.1: data/halle.db nach Turso kopieren (npm run turso:import)
+scripts/turso-backup.js    v5.1: Turso als SQLite-Datei sichern (npm run turso:backup)
 data/                      (wird automatisch erstellt) halle.db, uploads/, backups/
 ```
 
@@ -229,6 +246,11 @@ PORT=8080 HOST=127.0.0.1 TRUST_PROXY=loopback npm start
 | `HALLE_TZ`    | `Europe/Berlin`   | Zeitzone für "heute" (Deadlines, Countdown)               |
 | `TRUST_PROXY` | nicht gesetzt     | z. B. `loopback` hinter nginx (echte IP, Secure-Cookies)  |
 | `GEMINI_API_KEY` | nicht gesetzt  | v4.1: KI-Serienmaße (am einfachsten in `.env`)            |
+| `TURSO_DATABASE_URL` | nicht gesetzt | v5.1: Turso-Datenbank (`libsql://...`), sonst lokal `data/halle.db` |
+| `TURSO_AUTH_TOKEN` | nicht gesetzt | v5.1: Token zur Turso-Datenbank                          |
+| `HALLE_TURSO_SYNC_S` | `15`        | v5.1: Lese-Spiegel spätestens nach n Sekunden komplett erneuern |
+| `HALLE_TURSO_INIT` | nicht gesetzt | v5.1: `1` = leere Turso-Datenbank mit Beispieldaten starten |
+| `HALLE_DB`    | nicht gesetzt     | v5.1: `lokal` erzwingt `data/halle.db` trotz Turso-Variablen |
 
 Dauerbetrieb mit pm2:
 
