@@ -97,3 +97,26 @@ Datenbank. Ohne "Persistent Disk" gehen sie bei Render bei jedem Neustart verlor
 * Komplette App im Turso-Modus (Browser-Tests Desktop und Handy, API-Test): 26 Endpunkte liefern exakt dasselbe wie die App
   mit einer lokalen Kopie der Turso-Daten.
 * Falscher Token, Turso nicht erreichbar, leere Datenbank: klare Fehlermeldungen, nichts wird angelegt.
+
+## Nachtrag 5.1.1: Fehler "HTTP 400 ... expected internally tagged enum Value"
+
+**Ursache:** Nach einem `UPDATE ... WHERE id = ?` holt die Turso-Anbindung die geänderte Zeile in derselben Anfrage nach
+(für den Lese-Spiegel). Diese Folgeabfrage hat die ID als nackten Wert (`"12"` aus der URL) statt als Turso-Wert
+`{ "type": "integer", "value": "12" }` gesendet. Turso lehnt dann die **ganze** Anfrage ab, also auch das eigentliche UPDATE.
+Betroffen waren sporadisch alle Änderungen über eine ID (Status-Wechsel, Quick-Use/Gebinde, Setup, Aufgaben-Preis ...).
+Daten wurden dabei nicht beschädigt: Die Anfrage wurde komplett abgewiesen.
+
+**Behebung**
+* `server/lib/turso/values.js` (neu): **jeder** Parameter wird direkt vor dem Senden geprüft und bei Bedarf umgewandelt:
+  `undefined` und `NaN` werden `null`, Zahlen werden `integer`/`float`, Texte `text`, Objekte JSON-Text, Wahr/Falsch 1/0.
+  Damit kann kein roher Wert mehr bei Turso ankommen, egal von welcher Stelle im Code.
+* Die Folgeabfrage im Lese-Spiegel sendet die ID jetzt korrekt (und als Zahl).
+* `server/lib/util.js`: IDs aus URL/Body (`"12"`) werden in `mustGet`/`updateRow` als Zahl übergeben, `undefined` in
+  `insertRow`/`updateRow` als `NULL`.
+* Bei einem HTTP-Fehler von Turso steht jetzt die betroffene SQL-Anweisung im Log.
+
+Hinweis: Die App benutzt nicht `@libsql/client` / `db.execute`, sondern eine eigene, schlanke Turso-Anbindung mit der
+gewohnten Schnittstelle (`db.prepare(...).run/get/all`). In `server.js` selbst gibt es keine Datenbankaufrufe.
+
+Getestet gegen einen Testserver, der Parameter genauso streng prüft wie Turso: Die alte Version erzeugt dort exakt diese
+Fehlermeldung, die neue nicht mehr (Zufallstest mit 600 Operationen, IDs abwechselnd als Text und Zahl, API- und Browser-Tests).

@@ -43,22 +43,27 @@ function pick(body, schema, { partial = false } = {}) {
   return out;
 }
 
+/** v5.1: IDs aus URL/Body ("12") als Zahl, damit jede Datenbank (lokal oder Turso) sie gleich behandelt */
+const normId = (id) => (typeof id === 'string' && /^\s*-?\d+\s*$/.test(id) ? Number(id) : id);
+/** v5.1: undefined ist kein gültiger SQL-Wert: wird zu NULL */
+const cleanVal = (v) => (v === undefined ? null : v);
+
 function insertRow(table, data) {
   const keys = Object.keys(data);
   const sql = `INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`;
-  return db.prepare(sql).run(...keys.map((k) => data[k])).lastInsertRowid;
+  return db.prepare(sql).run(...keys.map((k) => cleanVal(data[k]))).lastInsertRowid;
 }
 
 function updateRow(table, id, data) {
   const keys = Object.keys(data);
   if (!keys.length) return;
   const sql = `UPDATE ${table} SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`;
-  const info = db.prepare(sql).run(...keys.map((k) => data[k]), id);
+  const info = db.prepare(sql).run(...keys.map((k) => cleanVal(data[k])), normId(id));
   if (!info.changes) throw httpError(404, 'Eintrag nicht gefunden.');
 }
 
 function mustGet(table, id, label = 'Eintrag') {
-  const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+  const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(normId(id));
   if (!row) throw httpError(404, `${label} nicht gefunden.`);
   return row;
 }
@@ -67,6 +72,7 @@ function mustGet(table, id, label = 'Eintrag') {
 const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 
 module.exports = {
+  normId, cleanVal,
   TZ, HttpError, httpError, nowIso, today, daysBetween,
   toBool, toIntOrNull, toNumOrNull, strOrNull, parseJSON, pick, insertRow, updateRow, mustGet, norm
 };

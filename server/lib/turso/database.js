@@ -14,29 +14,9 @@
  */
 const { SyncHttp } = require('./sync-http');
 const { Replica, isLocalRead } = require('./replica');
+const { encodeValue, decodeValue, isHranaValue, sanitizeStmt } = require('./values');
 
-/* ---------------- Werte umwandeln ---------------- */
-function encodeValue(v) {
-  if (v === null || v === undefined) return { type: 'null' };
-  if (typeof v === 'boolean') return { type: 'integer', value: v ? '1' : '0' };
-  if (typeof v === 'bigint') return { type: 'integer', value: v.toString() };
-  if (typeof v === 'number') {
-    if (!Number.isFinite(v)) return { type: 'null' };
-    return Number.isInteger(v) && Math.abs(v) <= Number.MAX_SAFE_INTEGER ? { type: 'integer', value: String(v) } : { type: 'float', value: v };
-  }
-  if (Buffer.isBuffer(v) || v instanceof Uint8Array) return { type: 'blob', base64: Buffer.from(v).toString('base64') };
-  if (v instanceof Date) return { type: 'text', value: v.toISOString() };
-  return { type: 'text', value: String(v) };
-}
-
-function decodeValue(v) {
-  if (!v || v.type === 'null') return null;
-  if (v.type === 'integer') { const n = Number(v.value); return Number.isSafeInteger(n) ? n : BigInt(v.value); }
-  if (v.type === 'float') return Number(v.value);
-  if (v.type === 'text') return v.value;
-  if (v.type === 'blob') return Buffer.from(v.base64 || '', 'base64');
-  return v.value === undefined ? null : v.value;
-}
+/* Werte umwandeln: siehe values.js */
 
 /** Fehler wie bei better-sqlite3 (mit .code), damit die Fehlerbehandlung gleich bleibt */
 function sqlError(err, sql) {
@@ -211,7 +191,8 @@ class TursoDatabase {
     if (res.status < 200 || res.status >= 300) {
       let msg = res.text;
       try { const j = JSON.parse(res.text); msg = j.message || j.error || msg; } catch { /* Text lassen */ }
-      throw new Error(`Turso-Fehler (HTTP ${res.status}): ${String(msg).slice(0, 300)}`);
+      const sqls = requests.filter((r) => r.stmt).map((r) => r.stmt.sql.replace(/\s+/g, ' ').slice(0, 120)).slice(1, 4);
+      throw new Error(`Turso-Fehler (HTTP ${res.status}): ${String(msg).slice(0, 300)}${sqls.length ? ` [SQL: ${sqls.join(' | ')}]` : ''}`);
     }
     let json;
     try { json = JSON.parse(res.text); } catch { throw new Error('Turso: ungültige Antwort (kein JSON).'); }
@@ -231,7 +212,7 @@ class TursoDatabase {
    */
   _rawStatements(stmts) {
     this.stats.statements += stmts.length;
-    const reqs = stmts.map((stmt) => ({ type: 'execute', stmt }));
+    const reqs = stmts.map((stmt) => ({ type: 'execute', stmt: sanitizeStmt(stmt) }));
     let results;
     if (this.stream) {
       if (!this.stream.baton && this.stream.started) throw new Error('Turso: Transaktion wurde vom Server beendet (Zeitüberschreitung?).');
@@ -416,4 +397,4 @@ function dumpToFile(tdb, file) {
   }
 }
 
-module.exports = { TursoDatabase, splitSql, encodeValue, decodeValue, dumpToFile };
+module.exports = { TursoDatabase, splitSql, encodeValue, decodeValue, dumpToFile, sanitizeStmt, isHranaValue };

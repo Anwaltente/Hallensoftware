@@ -15,6 +15,8 @@
  * Innerhalb einer Transaktion wird direkt in Turso gelesen (sieht eigene, noch nicht bestätigte Änderungen).
  */
 
+const { encodeValue } = require('./values');
+
 const INTERNAL = /^(sqlite_|libsql_|_litestream|_cf_)/i;
 const MASTER_SQL = "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY rowid";
 const IDENT = String.raw`(?:main\.)?(?:"((?:[^"]|"")+)"|\x60([^\x60]+)\x60|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))`;
@@ -234,10 +236,13 @@ class Replica {
       };
     }
     const byId = /\bWHERE\s+id\s*=\s*\?\s*;?\s*$/i.test(sql) && info.hasId && countPlaceholders(sql) === args.length && args.length >= 1;
+    // ID wie in der Anwendung (z. B. "12" aus der URL) für die Folgeabfrage sauber als Zahl
+    const lastId = () => { const v = args[args.length - 1]; return typeof v === 'string' && /^-?\d+$/.test(v.trim()) ? Number(v) : v; };
     if (c.kind === 'update' && byId && !/\bRETURNING\b/i.test(sql)) {
-      const id = args[args.length - 1];
+      const id = lastId();
+      if (id === undefined || id === null || (typeof id === 'object' && !Buffer.isBuffer(id))) return null;
       return {
-        extra: { sql: `SELECT * FROM ${q(c.table)} WHERE id = ?`, args: [id], want_rows: true },
+        extra: { sql: `SELECT * FROM ${q(c.table)} WHERE id = ?`, args: [encodeValue(id)], want_rows: true },
         apply: (main, extra) => {
           if (!(extra.rows || []).length) this._stmt(`DELETE FROM ${q(c.table)} WHERE id = ?`).run(id);
           else this._upsertRow(c.table, extra);
@@ -246,7 +251,8 @@ class Replica {
       };
     }
     if (c.kind === 'delete' && byId && !/\bRETURNING\b/i.test(sql)) {
-      const id = args[args.length - 1];
+      const id = lastId();
+      if (id === undefined || id === null || (typeof id === 'object' && !Buffer.isBuffer(id))) return null;
       return {
         extra: null,
         apply: () => {
