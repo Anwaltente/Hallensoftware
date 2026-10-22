@@ -27,6 +27,7 @@ const { requireRole } = require('../auth');
 const { pick, insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, toNumOrNull, toBool, nowIso } = require('../lib/util');
 const hub = require('../lib/hub');
 const stock = require('../lib/stock');
+const activity = require('../lib/activity');   // v5.3
 
 const router = express.Router();
 const { round, fmtQty } = hub;
@@ -71,6 +72,8 @@ router.post('/consumables/:id/use', (req, res) => {
     });
   })();
   const item = one(c.id);
+  activity.mark(req, 'quickuse', `Material entnommen: ${fmtQty(amount, c.kind)} ${c.unit} ${c.name}${vehicle ? ` für ${vehicle.name}` : ''}${isEmpty ? ' (Gebinde leer)' : ''}`,
+    { consumable_id: c.id, amount, unit: c.unit, vehicle_id: vehicle ? vehicle.id : null, bestand_vorher: before.total, bestand_nachher: item ? item.qty : null });
   const min = Number(c.min_qty) || 0;
   const hadStock = before.rows.length > 0;
   const crossed = hadStock && min > 0 && before.total >= min && item.qty < min;

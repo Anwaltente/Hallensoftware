@@ -7,6 +7,7 @@ import { get, post, put, del } from './api.js';
 import { printLabels } from './qr.js';
 import { floatBtn, floatOf } from './hud.js';   // v4: Schwebe-Status
 import { ratchet, coin, buzz } from './sfx.js';
+import { track } from './track.js';   // v5.3: Aktivitäts-Log
 import { html, setHTML, el, on, icon, toast, toastError, haptic, euro, since, openModal, confirmDialog, chooseDialog, formData, initials, fmtDate } from './ui.js';
 
 const CONDITIONS = ['neu', 'gebraucht', 'aufbereitet', 'defekt'];
@@ -15,16 +16,18 @@ const BOX_COLORS = ['#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a85
 /* ====================================================================== */
 /* Lager-Panel                                                            */
 /* ====================================================================== */
-const lagerState = { q: '', filter: 'all', vehicle: '' };
+const lagerState = { q: '', filter: 'all', vehicle: '', showAll: false };
 
 export async function renderLagerPanel(container) {
   const shelves = store.objects.filter((o) => o.type === 'shelf').sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  const phone = isPhone();   // v5.3: am Handy Akkordeon statt Regal-Kacheln + langer Liste
   setHTML(container, html`
     <div class="p-4 space-y-4">
       <div class="flex items-center justify-between">
         <div><h3 class="font-display font-bold tracking-wider text-white">Lager-Radar</h3><p class="text-xs text-slate-500">Regale, Euroboxen, Ersatzteile</p></div>
         ${canEdit() ? html`<button class="btn btn-sm btn-primary" data-lg-newpart>${icon('plus')} Teil</button>` : ''}
       </div>
+      ${phone ? html`<div class="acc-wrap card !p-0 overflow-hidden" data-lg-acc></div>` : html`
       <div class="grid grid-cols-2 gap-2">
         ${shelves.map((s) => html`
           <button class="card card-hover p-3 text-left" data-lg-shelf="${s.id}">
@@ -32,7 +35,7 @@ export async function renderLagerPanel(container) {
             <div class="space-y-1">${Array.from({ length: Number(s.props.levels) || 4 }, (_, i) => html`<div class="h-2 rounded-sm bg-slate-700/70 border-b-2 border-slate-500/60"></div>`)}</div>
             <div class="text-[10px] text-slate-500 mt-2">${Number(s.props.levels) || 4} Etagen · Frontansicht öffnen</div>
           </button>`)}
-      </div>
+      </div>`}
       <div class="space-y-2">
         <div class="relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">${icon('search')}</span>
           <input class="input !pl-9" placeholder="Teile suchen …" value="${lagerState.q}" data-lg-q></div>
@@ -50,8 +53,9 @@ export async function renderLagerPanel(container) {
     on(container, 'input', '[data-lg-q]', (_e, inp) => { lagerState.q = inp.value; clearTimeout(container._t); container._t = setTimeout(() => loadParts(container), 180); });
     on(container, 'click', '[data-lg-filter]', (_e, b) => { lagerState.filter = b.dataset.lgFilter; container.querySelectorAll('[data-lg-filter]').forEach((x) => x.classList.toggle('on', x === b)); loadParts(container); });
     on(container, 'change', '[data-lg-vehicle]', (_e, s) => { lagerState.vehicle = s.value; loadParts(container); });
+    on(container, 'click', '[data-lg-showall]', () => { lagerState.showAll = true; loadParts(container); });
     on(container, 'click', '[data-lg-part]', async (e, b) => {
-      if (e.target.closest('[data-lg-goto]')) return;
+      if (e.target.closest('[data-lg-goto]') || e.target.closest('[data-lg-acc]')) return;
       const parts = await get(`/parts?q=`);
       openPartForm(parts.find((p) => p.id === Number(b.dataset.lgPart)), () => loadParts(container));
     });
@@ -59,6 +63,10 @@ export async function renderLagerPanel(container) {
       e.stopPropagation();
       app.navigate({ kind: 'shelf', shelfId: Number(b.dataset.lgGoto), level: Number(b.dataset.level) || null, boxId: Number(b.dataset.box) || null, highlight: `part:${b.dataset.part}` });
     });
+  }
+  if (phone) {
+    const acc = container.querySelector('[data-lg-acc]');
+    if (acc) renderShelfAccordion(acc, {});
   }
   loadParts(container);
 }
@@ -74,6 +82,12 @@ async function loadParts(container) {
   try { parts = await get(`/parts?${qs}`); } catch (err) { toastError(err); return; }
   if (lagerState.filter === 'universal') parts = parts.filter((p) => p.universal);
   if (lagerState.filter === 'loose') parts = parts.filter((p) => !p.shelf_id);
+  // v5.3: am Handy die komplette Liste erst auf Wunsch (Suche, Filter oder Knopf), sonst endloses Scrollen
+  if (isPhone() && !lagerState.q && lagerState.filter === 'all' && !lagerState.vehicle && !lagerState.showAll && parts.length > 6) {
+    setHTML(list, html`<button class="btn w-full" data-lg-showall>${icon('list', 'w-4 h-4')} Alle ${parts.length} Teile als Liste zeigen</button>
+      <p class="text-[11px] text-slate-500 text-center">Tipp: oben im Regal aufklappen oder suchen.</p>`);
+    return;
+  }
   setHTML(list, html`
     <div class="text-[11px] text-slate-500">${parts.length} Teile</div>
     ${parts.map((p) => partRow(p))}
@@ -110,8 +124,11 @@ function partRow(p, { compact = false } = {}) {
 /* Regal-Frontansicht                                                     */
 /* ====================================================================== */
 export async function openShelf(shelfId, { level = null, boxId = null, highlight = null } = {}) {
+  // v5.3: am Handy kompaktes Akkordeon statt Frontansicht (kein endloses Scrollen)
+  if (isPhone()) return openShelfAccordion(shelfId, { level, boxId, highlight });
   let data;
   try { data = await get(`/shelves/${shelfId}`); } catch (err) { toastError(err); return; }
+  track(`Öffnete ${data.shelf.label || `Regal ${data.shelf.code}`}`, 'open');
   let selectedBox = boxId || null;
   const body = el(html`<div class="grid lg:grid-cols-[1fr_320px] gap-4"><div data-front></div><div data-detail></div></div>`);
   const m = openModal({ title: data.shelf.label || `Regal ${data.shelf.code}`, subtitle: 'Frontansicht · Etage 1 = unten', size: 'xl', iconName: 'shelf', body });
@@ -215,6 +232,215 @@ export async function openShelf(shelfId, { level = null, boxId = null, highlight
   render();
   setTimeout(flashHighlight, 120);
   return m;
+}
+
+
+/* ====================================================================== */
+/* v5.3: Handy-Ansicht: verschachteltes Akkordeon-Regal                   */
+/*   Ebene 1: Regal-Tabs · Ebene 2: Etagen · Ebene 3: Boxen/Freifläche    */
+/*   Ebene 4: Box-Inhalt mit Suchzeile. Standard: alles eingeklappt.      */
+/* ====================================================================== */
+export const isPhone = () => !!(window.matchMedia && window.matchMedia('(max-width: 767px)').matches);
+
+function openShelfAccordion(shelfId, opts = {}) {
+  const body = el(html`<div class="-mx-5 -my-4"><div data-acc></div></div>`);
+  const m = openModal({ title: 'Regale', subtitle: 'Regal wählen, Etage aufklappen, Box antippen', size: 'xl', iconName: 'shelf', body });
+  renderShelfAccordion(body.querySelector('[data-acc]'), { shelfId, ...opts, inModal: m });
+  return m;
+}
+
+/**
+ * Akkordeon in einen Container zeichnen (Modal oder Lager-Panel).
+ * opts: { shelfId, level, boxId, highlight }
+ */
+export async function renderShelfAccordion(root, opts = {}) {
+  const shelves = store.objects.filter((o) => o.type === 'shelf').sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  const st = root._acc || { cache: new Map() };
+  root._acc = st;
+  st.shelfId = Number(opts.shelfId) || st.shelfId || (shelves[0] && shelves[0].id) || null;
+  st.level = opts.level !== undefined ? (opts.level || null) : (st.level ?? null);
+  st.box = opts.boxId ? Number(opts.boxId) : (opts.level !== undefined ? null : (st.box ?? null));
+  st.q = '';
+  st.highlight = opts.highlight || null;
+  if (opts.highlight && !st.level && !st.box) {
+    // Treffer ohne Etage/Box: Freifläche der passenden Etage öffnen, sobald Daten da sind
+    st.pendingHighlight = opts.highlight;
+  }
+
+  const load = async (force = false) => {
+    if (!st.shelfId) return null;
+    if (!force && st.cache.has(st.shelfId)) return st.cache.get(st.shelfId);
+    const d = await get(`/shelves/${st.shelfId}`);
+    st.cache.set(st.shelfId, d);
+    return d;
+  };
+
+  async function reload() { st.cache.delete(st.shelfId); await draw(); }
+
+  function levelStats(d, l) {
+    const boxes = d.boxes.filter((b) => b.level === l);
+    const boxIds = new Set(boxes.map((b) => b.id));
+    const parts = d.parts.filter((p) => (p.box_id ? boxIds.has(p.box_id) : p.level === l));
+    const tools = d.tools.filter((t) => (t.box_id ? boxIds.has(t.box_id) : t.level === l));
+    const loose = d.parts.filter((p) => !p.box_id && p.level === l);
+    const looseTools = d.tools.filter((t) => !t.box_id && t.level === l);
+    return { boxes, parts, tools, loose, looseTools };
+  }
+
+  function boxPanel(d, key) {
+    const isLoose = String(key).startsWith('loose');
+    const lvl = isLoose ? Number(String(key).split('-')[1]) || null : null;
+    const box = isLoose ? null : d.boxes.find((b) => b.id === Number(key));
+    if (!isLoose && !box) return '';
+    const parts = isLoose ? d.parts.filter((p) => !p.box_id && (lvl ? p.level === lvl : !p.level)) : d.parts.filter((p) => p.box_id === box.id);
+    const tools = isLoose ? d.tools.filter((t) => !t.box_id && (lvl ? t.level === lvl : !t.level)) : d.tools.filter((t) => t.box_id === box.id);
+    const color = box ? box.color : '#64748b';
+    return html`
+      <div class="acc-box" style="--bc:${color}" data-accbox="${key}">
+        <div class="acc-box-head">
+          <span class="w-3.5 h-3.5 rounded shrink-0" style="background:${color}"></span>
+          <div class="flex-1 min-w-0"><div class="font-display font-bold text-white truncate">${box ? box.label : lvl ? `Freifläche Etage ${lvl}` : 'Ohne Etage'}</div>
+            <div class="text-[11px] text-slate-400">${parts.length} ${parts.length === 1 ? 'Teil' : 'Teile'}${tools.length ? ` · ${tools.length} Werkzeug` : ''}${box ? ` · Platz ${box.position}` : ''}</div></div>
+          ${box ? floatBtn('box', box.id, { small: true, text: false }) : ''}
+          ${box ? html`<button class="btn-icon !w-8 !h-8" data-acc-qr="${box.id}" title="QR-Code drucken">${icon('qr', 'w-4 h-4')}</button>` : ''}
+          ${box && isAdmin() ? html`<button class="btn-icon !w-8 !h-8" data-acc-editbox="${box.id}" title="Box bearbeiten">${icon('edit', 'w-4 h-4')}</button>` : ''}
+          <button class="btn-icon !w-8 !h-8" data-acc-closebox title="Zuklappen">${icon('x', 'w-4 h-4')}</button>
+        </div>
+        ${parts.length + tools.length > 4 ? html`<div class="relative px-3 pt-2"><span class="absolute left-5 top-1/2 translate-y-[-30%] text-slate-500">${icon('search', 'w-3.5 h-3.5')}</span>
+          <input class="input !pl-8 !py-1.5 text-sm" placeholder="In dieser ${box ? 'Box' : 'Ablage'} suchen …" data-acc-q autocomplete="off"></div>` : ''}
+        <div class="p-2.5 space-y-1.5" data-acc-items>
+          ${parts.map((p) => html`<div data-acc-item="${`${p.name} ${p.category || ''} ${p.part_number || ''}`.toLowerCase()}">${partRow(p, { compact: true })}</div>`)}
+          ${tools.map((t) => html`<div class="card px-3 py-2 text-sm flex items-center gap-2" data-acc-item="${`${t.name} ${t.category || ''}`.toLowerCase()}" data-partchip="tool:${t.id}">${icon('wrench', 'w-3.5 h-3.5 text-sky-300')}<span class="flex-1 text-white">${t.name}</span>${t.borrowed_by_name ? html`<span class="chip !text-[10px] !text-pink-200">bei ${t.borrowed_by_name}</span>` : ''}${floatBtn('tool', t.id, { small: true, text: false })}</div>`)}
+          ${!parts.length && !tools.length ? html`<p class="text-sm text-slate-500 px-1">Leer.</p>` : ''}
+          <p class="text-sm text-slate-500 px-1 hidden" data-acc-none>Nichts gefunden.</p>
+          ${canEdit() ? html`<button class="btn btn-sm w-full mt-1" data-acc-newpart>${icon('plus')} Teil ${box ? 'in diese Box' : 'hierher'}</button>` : ''}
+        </div>
+      </div>`;
+  }
+
+  async function draw() {
+    let d;
+    try { d = await load(); } catch (err) { toastError(err); return; }
+    if (!d) { setHTML(root, html`<p class="p-4 text-sm text-slate-500">Noch keine Regale angelegt.</p>`); return; }
+    const levels = Number(d.shelf.props.levels) || 4;
+    // Treffer ohne vorgewählte Etage: Etage/Box aus dem markierten Teil ableiten
+    if (st.pendingHighlight) {
+      const [kind, id] = st.pendingHighlight.split(':');
+      const it = (kind === 'tool' ? d.tools : d.parts).find((x) => x.id === Number(id));
+      if (it) {
+        const b = it.box_id && d.boxes.find((x) => x.id === it.box_id);
+        st.level = b ? b.level : it.level || 0;
+        st.box = b ? b.id : `loose-${it.level || 0}`;
+      }
+      st.pendingHighlight = null;
+    }
+    const noLevel = { parts: d.parts.filter((p) => !p.box_id && !p.level), tools: d.tools.filter((t) => !t.box_id && !t.level) };
+    const lvls = Array.from({ length: levels }, (_, i) => i + 1);
+    setHTML(root, html`
+      <div class="acc-shelf">
+        <div class="acc-tabs" role="tablist">
+          ${shelves.map((s) => html`<button class="acc-tab ${s.id === st.shelfId ? 'on' : ''}" role="tab" data-acc-shelf="${s.id}">${icon('shelf', 'w-3.5 h-3.5')} ${s.label || `Regal ${s.code}`}</button>`)}
+        </div>
+        <div class="acc-levels">
+          ${lvls.map((l) => {
+            const ls = levelStats(d, l);
+            const open = st.level === l;
+            const count = ls.parts.length + ls.tools.length;
+            return html`
+              <div class="acc-level ${open ? 'open' : ''}" data-acc-level="${l}">
+                <button class="acc-lvhead" data-acc-lv="${l}" aria-expanded="${open ? 'true' : 'false'}">
+                  <span class="acc-lvnum">E${l}</span>
+                  <span class="flex-1 min-w-0 text-left">
+                    <span class="block text-sm font-semibold text-white">Etage ${l}${l === 1 ? ' (unten)' : l === levels ? ' (oben)' : ''}</span>
+                    <span class="block text-[11px] text-slate-400 truncate">${ls.boxes.length} ${ls.boxes.length === 1 ? 'Box' : 'Boxen'} · ${count} ${count === 1 ? 'Teil' : 'Teile'}${ls.loose.length + ls.looseTools.length ? ` · ${ls.loose.length + ls.looseTools.length} lose` : ''}</span>
+                  </span>
+                  <span class="acc-dots">${ls.boxes.slice(0, 6).map((b) => html`<i style="background:${b.color}"></i>`)}</span>
+                  <span class="acc-chev" aria-hidden="true"></span>
+                </button>
+                ${open ? html`
+                  <div class="acc-lvbody">
+                    <div class="acc-tiles">
+                      ${ls.boxes.map((b) => {
+                        const n = d.parts.filter((p) => p.box_id === b.id).length + d.tools.filter((t) => t.box_id === b.id).length;
+                        return html`<button class="acc-tile ${st.box === b.id ? 'on' : ''}" style="--bc:${b.color}" data-acc-tile="${b.id}" title="${b.label}"><span class="acc-tile-label">${b.label}</span><span class="acc-tile-n">${n}</span></button>`;
+                      })}
+                      ${ls.loose.length + ls.looseTools.length || !ls.boxes.length ? html`<button class="acc-tile is-free ${st.box === `loose-${l}` ? 'on' : ''}" data-acc-tile="loose-${l}" title="Freifläche"><span class="acc-tile-label">Freifläche</span><span class="acc-tile-n">${ls.loose.length + ls.looseTools.length}</span></button>` : ''}
+                      ${isAdmin() ? html`<button class="acc-tile is-add" data-acc-addbox="${l}" title="Neue Eurobox auf Etage ${l}">${icon('plus', 'w-4 h-4')}<span class="acc-tile-label">Box</span></button>` : ''}
+                    </div>
+                    ${st.box && (st.box === `loose-${l}` || ls.boxes.some((b) => b.id === st.box)) ? boxPanel(d, st.box) : ''}
+                  </div>` : ''}
+              </div>`;
+          })}
+          ${noLevel.parts.length + noLevel.tools.length ? html`
+            <div class="acc-level ${st.level === 0 ? 'open' : ''}" data-acc-level="0">
+              <button class="acc-lvhead" data-acc-lv="0"><span class="acc-lvnum">?</span><span class="flex-1 text-left"><span class="block text-sm font-semibold text-white">Ohne Etage</span>
+                <span class="block text-[11px] text-slate-400">${noLevel.parts.length + noLevel.tools.length} Einträge</span></span><span class="acc-chev"></span></button>
+              ${st.level === 0 ? html`<div class="acc-lvbody">${boxPanel(d, 'loose-0')}</div>` : ''}
+            </div>` : ''}
+        </div>
+        ${d.boxes.length ? html`<div class="px-3 pb-3"><button class="btn btn-sm w-full" data-acc-qrall>${icon('qr')} Alle Box-Labels dieses Regals drucken</button></div>` : ''}
+      </div>`);
+    if (st.highlight) {
+      const hl = st.highlight;
+      st.highlight = null;
+      setTimeout(() => {
+        const [kind, id] = hl.split(':');
+        const node = root.querySelector(kind === 'tool' ? `[data-partchip="tool:${id}"]` : `[data-partrow="${id}"]`);
+        if (node) { node.classList.add('flash-target'); node.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      }, 80);
+    } else if (st.box) {
+      const bx = root.querySelector('[data-accbox]');
+      if (bx && opts._scroll !== false) bx.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  if (!root.dataset.boundAcc) {
+    root.dataset.boundAcc = '1';
+    on(root, 'click', '[data-acc-shelf]', (_e, b) => { st.shelfId = Number(b.dataset.accShelf); st.level = null; st.box = null; haptic(6); const s = shelves.find((x) => x.id === st.shelfId); track(`Öffnete ${s ? s.label || `Regal ${s.code}` : 'Regal'}`, 'open'); draw(); });
+    on(root, 'click', '[data-acc-lv]', (_e, b) => { const l = Number(b.dataset.accLv); st.level = st.level === l ? null : l; st.box = l === 0 ? 'loose-0' : null; haptic(5); draw(); });
+    on(root, 'click', '[data-acc-tile]', (_e, b) => {
+      const k = b.dataset.accTile;
+      const key = String(k).startsWith('loose') ? k : Number(k);
+      st.box = st.box === key ? null : key;
+      haptic(6);
+      if (st.box) track(`Öffnete Box ${b.getAttribute('title') || ''}`, 'open');
+      draw();
+    });
+    on(root, 'click', '[data-acc-closebox]', () => { st.box = null; if (st.level === 0) st.level = null; draw(); });
+    on(root, 'input', '[data-acc-q]', (_e, inp) => {
+      const q = inp.value.trim().toLowerCase();
+      const items = root.querySelectorAll('[data-acc-item]');
+      let shown = 0;
+      items.forEach((x) => { const ok = !q || x.dataset.accItem.includes(q); x.classList.toggle('hidden', !ok); if (ok) shown += 1; });
+      const none = root.querySelector('[data-acc-none]');
+      if (none) none.classList.toggle('hidden', shown > 0 || !items.length);
+    });
+    on(root, 'click', '[data-lg-part]', (e, r) => {
+      if (e.target.closest('[data-float-kind], [data-lg-goto]')) return;
+      const d = st.cache.get(st.shelfId);
+      const p = d && d.parts.find((x) => x.id === Number(r.dataset.lgPart));
+      if (p) openPartForm(p, reload);
+    });
+    on(root, 'click', '[data-acc-newpart]', () => {
+      const d = st.cache.get(st.shelfId);
+      if (String(st.box).startsWith('loose')) openPartForm({ shelf_id: st.shelfId, level: Number(String(st.box).split('-')[1]) || null }, reload);
+      else openPartForm({ box_id: st.box, shelf_id: st.shelfId, level: d && (d.boxes.find((b) => b.id === st.box) || {}).level }, reload);
+    });
+    on(root, 'click', '[data-acc-addbox]', (_e, b) => {
+      const d = st.cache.get(st.shelfId);
+      const l = Number(b.dataset.accAddbox);
+      openBoxForm({ shelf_id: st.shelfId, level: l, position: d ? d.boxes.filter((x) => x.level === l).length + 1 : 1 }, reload);
+    });
+    on(root, 'click', '[data-acc-editbox]', (_e, b) => {
+      const d = st.cache.get(st.shelfId);
+      openBoxForm(d.boxes.find((x) => x.id === Number(b.dataset.accEditbox)), async (deleted) => { if (deleted) st.box = null; await reload(); });
+    });
+    const label = (d, b) => ({ kind: 'box', id: b.id, title: b.label, subtitle: `${d.shelf.label || `Regal ${d.shelf.code}`} · Etage ${b.level} · Platz ${b.position}`, kicker: 'EUROBOX', color: b.color });
+    on(root, 'click', '[data-acc-qr]', (_e, b) => { const d = st.cache.get(st.shelfId); printLabels([label(d, d.boxes.find((x) => x.id === Number(b.dataset.accQr)))], { title: 'QR-Code: Eurobox' }); });
+    on(root, 'click', '[data-acc-qrall]', () => { const d = st.cache.get(st.shelfId); printLabels(d.boxes.map((b) => label(d, b)), { title: `QR-Labels ${d.shelf.label || d.shelf.code}` }); });
+  }
+  root._accReload = reload;
+  await draw();
 }
 
 function openBoxForm(box, onDone) {

@@ -18,6 +18,9 @@
 const { encodeValue } = require('./values');
 
 const INTERNAL = /^(sqlite_|libsql_|_litestream|_cf_)/i;
+/* v5.3: Tabellen, die NICHT gespiegelt werden (wachsen stetig, werden selten gelesen): Lesen und Schreiben direkt in Turso */
+const REMOTE_ONLY = new Set(['activity_logs']);
+const REMOTE_RE = /\bactivity_logs\b/i;
 const MASTER_SQL = "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY rowid";
 const IDENT = String.raw`(?:main\.)?(?:"((?:[^"]|"")+)"|\x60([^\x60]+)\x60|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))`;
 const q = (name) => `"${String(name).replace(/"/g, '""')}"`;
@@ -38,6 +41,7 @@ function countPlaceholders(sql) {
 
 /** Ist die Anweisung ein reines Lesen, das der Spiegel beantworten kann? */
 function isLocalRead(sql) {
+  if (REMOTE_RE.test(sql)) return false;   // v5.3: nicht gespiegelte Tabellen immer direkt in Turso lesen
   if (/^\s*PRAGMA\s+(table_info|table_xinfo|index_list|index_info|foreign_key_list)\s*\(/i.test(sql)) return true;
   if (/\bRETURNING\b/i.test(sql)) return false;
   if (/^\s*(SELECT|VALUES)\b/i.test(sql)) return !/\b(last_insert_rowid|changes|total_changes)\s*\(/i.test(sql);
@@ -122,7 +126,7 @@ class Replica {
     this.stmts.clear();
     this.info.clear();
     this.children.clear();
-    const tables = master.filter((m) => m.type === 'table' && !INTERNAL.test(m.name));
+    const tables = master.filter((m) => m.type === 'table' && !INTERNAL.test(m.name) && !REMOTE_ONLY.has(m.name));
     for (const t of tables) this.local.exec(t.sql);
     for (const m of master.filter((x) => (x.type === 'index' || x.type === 'view') && !INTERNAL.test(x.name))) {
       try { this.local.exec(m.sql); } catch { /* nur Beschleunigung */ }
@@ -201,6 +205,7 @@ class Replica {
 
   /* ---------- Schreiben ---------- */
   _markTable(table, withChildren) {
+    if (REMOTE_ONLY.has(table)) return;   // v5.3: liegt nicht im Spiegel, nichts nachzuladen
     if (!table || !this.info.has(table)) { this.needFull = true; return; }
     this.dirty.add(table);
     if (withChildren) for (const c of this.children.get(table) || []) this.dirty.add(c);
@@ -268,4 +273,4 @@ class Replica {
   close() { if (this.local) { try { this.local.close(); } catch { /* egal */ } } this.local = null; }
 }
 
-module.exports = { Replica, isLocalRead, classify, countPlaceholders };
+module.exports = { Replica, isLocalRead, classify, countPlaceholders, REMOTE_ONLY };

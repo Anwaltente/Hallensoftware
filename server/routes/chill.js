@@ -11,6 +11,31 @@ const express = require('express');
 const { db } = require('../db');
 const { buildPacklist } = require('../lib/packlist');
 const { pick, insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, parseJSON, today, nowIso } = require('../lib/util');
+const activity = require('../lib/activity');   // v5.3: Setup-Änderungen im Aktivitäts-Log
+
+/* v5.3: Was hat sich am Setup geändert? (für das Protokoll, z. B. "camber.fl: -4.5 → -4") */
+const SETUP_LABEL = { camber: 'Sturz', toe: 'Spur', caster: 'Nachlauf', pressure: 'Druck', steering: 'Lenkung', dampers: 'Dämpfer', arb: 'Stabi', rideHeight: 'Höhe',
+  fl: 'VL', fr: 'VR', rl: 'HL', rr: 'HR', front: 'vorn', rear: 'hinten', cold: 'kalt', warm: 'warm', rebound: 'Zug', bump: 'Druck', lock: 'Einschlag', kit: 'Kit', ackermann: 'Ackermann',
+  toe_front_mm: 'Spur vorn mm', toe_rear_mm: 'Spur hinten mm', title: 'Titel', track: 'Strecke', rating: 'Bewertung', notes: 'Notizen', setup_date: 'Datum' };
+function flat(o, pre = '', out = {}) {
+  if (o && typeof o === 'object' && !Array.isArray(o)) { for (const [k, v] of Object.entries(o)) flat(v, pre ? `${pre}.${k}` : k, out); } else out[pre] = o;
+  return out;
+}
+function setupDiff(before, after) {
+  const a = flat({ ...parseJSON(before.data, {}), toe_front_mm: before.toe_front_mm, toe_rear_mm: before.toe_rear_mm, title: before.title, track: before.track, rating: before.rating, setup_date: before.setup_date });
+  const b = flat({ ...parseJSON(after.data, {}), toe_front_mm: after.toe_front_mm, toe_rear_mm: after.toe_rear_mm, title: after.title, track: after.track, rating: after.rating, setup_date: after.setup_date });
+  const out = [];
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const x = a[k] === undefined || a[k] === '' ? null : a[k];
+    const y = b[k] === undefined || b[k] === '' ? null : b[k];
+    if (String(x) === String(y)) continue;
+    out.push({ feld: k.split('.').map((p) => SETUP_LABEL[p] || p).join(' '), vorher: x, nachher: y });
+  }
+  if (String(before.notes || '') !== String(after.notes || '')) out.push({ feld: 'Notizen', vorher: '…', nachher: '…' });
+  return out;
+}
+const fmtV = (v) => (v === null ? 'leer' : typeof v === 'number' ? String(v).replace('.', ',') : String(v));
+const vehName = (id) => { const v = db.prepare('SELECT name FROM vehicles WHERE id = ?').get(id); return v ? v.name : 'Fahrzeug'; };
 
 const router = express.Router();
 
@@ -92,13 +117,22 @@ router.post('/setups', (req, res) => {
     if (req.body.is_current) db.prepare('UPDATE setups SET is_current = 0 WHERE vehicle_id = ?').run(vehicleId);
     id = insertRow('setups', { ...pick(req.body, setupSchema), vehicle_id: vehicleId, is_current: req.body.is_current ? 1 : 0, created_by: req.user.id, created_at: nowIso() });
   })();
-  res.status(201).json(serializeSetup(mustGet('setups', id)));
+  const created = mustGet('setups', id);
+  activity.mark(req, 'setup_change', `Setup angelegt: ${created.title} (${vehName(vehicleId)})${created.is_current ? ', ist jetzt aktuell' : ''}`, { setup_id: id, vehicle_id: vehicleId });
+  res.status(201).json(serializeSetup(created));
 });
 
 router.put('/setups/:id', (req, res) => {
-  mustGet('setups', req.params.id, 'Setup');
+  const before = mustGet('setups', req.params.id, 'Setup');
   updateRow('setups', req.params.id, pick(req.body, setupSchema, { partial: true }));
-  res.json(serializeSetup(mustGet('setups', req.params.id)));
+  const after = mustGet('setups', req.params.id);
+  const diff = setupDiff(before, after);
+  if (diff.length) {
+    const head = diff.slice(0, 4).map((d) => `${d.feld} ${fmtV(d.vorher)} → ${fmtV(d.nachher)}`).join(', ');
+    activity.mark(req, 'setup_change', `Setup geändert: ${after.title} (${vehName(after.vehicle_id)}): ${head}${diff.length > 4 ? ` und ${diff.length - 4} weitere` : ''}`,
+      { setup_id: after.id, vehicle_id: after.vehicle_id, changes: diff });
+  }
+  res.json(serializeSetup(after));
 });
 
 router.post('/setups/:id/current', (req, res) => {
@@ -107,11 +141,14 @@ router.post('/setups/:id/current', (req, res) => {
     db.prepare('UPDATE setups SET is_current = 0 WHERE vehicle_id = ?').run(s.vehicle_id);
     db.prepare('UPDATE setups SET is_current = 1 WHERE id = ?').run(s.id);
   })();
+  activity.mark(req, 'setup_change', `Setup aktiviert: ${s.title} (${vehName(s.vehicle_id)})`, { setup_id: s.id, vehicle_id: s.vehicle_id });
   res.json({ ok: true });
 });
 
 router.delete('/setups/:id', (req, res) => {
+  const s = db.prepare('SELECT * FROM setups WHERE id = ?').get(req.params.id);
   db.prepare('DELETE FROM setups WHERE id = ?').run(req.params.id);
+  if (s) activity.mark(req, 'setup_change', `Setup gelöscht: ${s.title} (${vehName(s.vehicle_id)})`, { setup_id: s.id, vehicle_id: s.vehicle_id });
   res.json({ ok: true });
 });
 

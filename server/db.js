@@ -15,6 +15,7 @@
  * v4.2: neue Spalten in parts (Gebinde), neue Tabelle shopping_list
  *
  * v5.1: neue Spalten tasks.cost, purchases.task_id, purchases.log_id (Budget-Kopplung)
+ * v5.3: neue Spalten in tasks (Zeit, Zuweisung, Zieldatum, Pause), maintenance_log.parts_used, neue Tabelle activity_logs
  *
  * Speicherort: ./data/halle.db (überschreibbar via DATA_DIR)
  *              oder Turso (libSQL in der Cloud), wenn TURSO_DATABASE_URL + TURSO_AUTH_TOKEN gesetzt sind (lib/turso/)
@@ -479,6 +480,15 @@ ensureColumn('vehicles', 'quick_specs', 'TEXT');
 // v5.2: Spur in Millimetern (Summe je Achse, + = Vorspur). Alte Gradwerte im JSON bleiben unangetastet.
 ensureColumn('setups', 'toe_front_mm', 'REAL');
 ensureColumn('setups', 'toe_rear_mm', 'REAL');
+// v5.3: Team-Koordination: Zeitschätzung, Zuweisung, Zieldatum und "Nicht fertig geworden" (Pause mit Rest-To-do)
+ensureColumn('tasks', 'estimated_hours', 'REAL');      // geschätzter Aufwand in Stunden, z. B. 2.5
+ensureColumn('tasks', 'assigned_user', 'INTEGER');     // users.id, leer = offener Pool (frei für jeden)
+ensureColumn('tasks', 'target_date', 'TEXT');          // geplantes Fertigstellungsdatum (JJJJ-MM-TT)
+ensureColumn('tasks', 'progress_note', 'TEXT');        // "Was ist noch zu tun?" beim Pausieren
+ensureColumn('tasks', 'paused_at', 'TEXT');            // gesetzt = Arbeit unterbrochen, Auto bekommt ein Warn-Badge
+ensureColumn('tasks', 'paused_by', 'INTEGER');
+// v5.3: verwendete Teile / Flüssigkeiten je Wartungsheft-Eintrag (für den PDF-Export)
+ensureColumn('maintenance_log', 'parts_used', 'TEXT');
 
 /* ---------- v3: neue Tabellen (nur CREATE TABLE IF NOT EXISTS) ---------- */
 db.exec(`
@@ -603,6 +613,24 @@ CREATE TABLE IF NOT EXISTS dashboard_configs (
 );
 `);
 ensureColumn('consumable_moves', 'detail', 'TEXT');   // v4.2: welche Gebinde wie viel abgegeben haben (für Rückgängig)
+
+/* ---------- v5.3: Aktivitäts- und Audit-Log (neue Tabelle) ---------- */
+// Wird mit Turso NICHT in den Lese-Spiegel geladen (kann groß werden), siehe lib/turso/replica.js
+db.exec(`
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER,
+  user_name     TEXT,
+  action_type   TEXT NOT NULL,
+  description   TEXT NOT NULL,
+  details_json  TEXT,
+  is_high_level INTEGER NOT NULL DEFAULT 0,   -- 1 = Meilenstein (Login, Entnahme, Umparken ...), 0 = Klick / Interaktion
+  created_at    TEXT DEFAULT ${NOW}
+);
+CREATE INDEX IF NOT EXISTS idx_activity_level ON activity_logs(is_high_level, id);
+CREATE INDEX IF NOT EXISTS idx_activity_user  ON activity_logs(user_name, id);
+CREATE INDEX IF NOT EXISTS idx_activity_time  ON activity_logs(created_at);
+`);
 
 // Standard-Modelle nur ergänzen, wenn sie fehlen (INSERT OR IGNORE überschreibt nie eigene Änderungen)
 (function seedVehicleModels() {

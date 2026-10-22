@@ -14,6 +14,8 @@ function listVehicles() {
   const rows = db.prepare(`
     SELECT v.*, lo.code AS slot_code, lo.label AS slot_label,
       (SELECT COUNT(*) FROM tasks t WHERE t.vehicle_id = v.id AND t.status = 'open') AS open_tasks,
+      (SELECT COUNT(*) FROM tasks t WHERE t.vehicle_id = v.id AND t.status = 'open' AND t.paused_at IS NOT NULL) AS paused_tasks,
+      (SELECT t.progress_note FROM tasks t WHERE t.vehicle_id = v.id AND t.status = 'open' AND t.paused_at IS NOT NULL ORDER BY t.paused_at DESC LIMIT 1) AS paused_note,
       (SELECT COALESCE(SUM(price * qty), 0) FROM purchases p WHERE p.vehicle_id = v.id AND p.status = 'todo') AS budget_todo
     FROM vehicles v LEFT JOIN layout_objects lo ON lo.id = v.slot_id ORDER BY v.id`).all();
   const nextEv = db.prepare(`SELECT e.id, e.name, e.date_start FROM events e JOIN event_vehicles ev ON ev.event_id = e.id

@@ -54,6 +54,7 @@ export class HallMap {
     this.builderSelId = null;
     this.bp = { tool: 'select', kind: 'v230', draft: null, selId: null, edit: false };
     this.labels = [];
+    this.pin = null;               // v5.3: Such-Pin { objectId|vehicleId, frac, label, sub }
 
     this.resize();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
@@ -167,6 +168,108 @@ export class HallMap {
   }
 
   flash(rect, ms = 2600) { this.highlight = { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, until: performance.now() + ms }; }
+
+  /* ---------- v5.3: Such-Pin ("Hier: 10er Nuss") ---------- */
+  pinWorld(pin = this.pin) {
+    if (!pin) return null;
+    if (pin.vehicleId) {
+      const v = store.vehicles.find((x) => x.id === Number(pin.vehicleId));
+      if (v) { const r = this.vehicleRect(v); return { x: r.x + r.w / 2, y: r.y + r.h * 0.35 }; }
+    }
+    const o = pin.objectId && store.objects.find((x) => x.id === Number(pin.objectId));
+    if (!o) return null;
+    const f = Math.max(0.05, Math.min(0.95, Number(pin.frac ?? 0.5)));
+    return o.h >= o.w ? { x: o.x + o.w / 2, y: o.y + o.h * f } : { x: o.x + o.w * f, y: o.y + o.h / 2 };
+  }
+
+  /** Pin setzen und die Kamera sanft hinfliegen lassen (mittlerer Zoom, Umgebung bleibt sichtbar) */
+  showPin(pin) {
+    this.pin = { ...pin, born: performance.now() };
+    const w = this.pinWorld();
+    if (!w) { this.pin = null; return false; }
+    this.focusRect({ x: w.x - 2.6, y: w.y - 2.6, w: 5.2, h: 5.2 }, { pad: 1.2, maxZoom: 64, duration: 700 });
+    return true;
+  }
+
+  /** Klick auf den Pin: ganz nah heranzoomen */
+  zoomToPin(after = null) {
+    const w = this.pinWorld();
+    if (!w) return;
+    this.focusRect({ x: w.x - 0.7, y: w.y - 0.7, w: 1.4, h: 1.4 }, { pad: 0.6, maxZoom: 150, duration: 650, after });
+  }
+
+  clearPin() { this.pin = null; }
+
+  pinHit(s) {
+    if (!this.pin || !this.pinBox) return false;
+    const b = this.pinBox;
+    return (s.x >= b.x && s.x <= b.x + b.w && s.y >= b.y && s.y <= b.y + b.h) || Math.hypot(s.x - b.px, s.y - b.py) < 26;
+  }
+
+  drawPin(ctx) {
+    this.pinBox = null;
+    if (!this.pin || store.mode !== 'hall' || store.builder) return;
+    const w = this.pinWorld();
+    if (!w) return;
+    const s = this.toScreen(w.x, w.y);
+    const col = '#ff2e93';
+    const t = this.time;
+    ctx.save();
+    // pulsierende Ringe am Boden
+    for (let i = 0; i < 3; i += 1) {
+      const ph = ((t * 0.9) + i / 3) % 1;
+      ctx.strokeStyle = `rgba(255,46,147,${(1 - ph) * 0.85})`;
+      ctx.lineWidth = 2.5 * (1 - ph) + 0.5;
+      ctx.beginPath(); ctx.ellipse(s.x, s.y, 8 + ph * 34, (8 + ph * 34) * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,46,147,0.35)';
+    ctx.beginPath(); ctx.ellipse(s.x, s.y, 7, 4, 0, 0, Math.PI * 2); ctx.fill();
+    // Nadel (hüpft beim Erscheinen kurz)
+    const age = (performance.now() - (this.pin.born || 0)) / 1000;
+    const bounce = age < 0.9 ? Math.abs(Math.sin(age * 7)) * (1 - age / 0.9) * 18 : Math.sin(t * 3) * 2;
+    const hy = s.y - 30 - bounce;
+    ctx.shadowColor = col; ctx.shadowBlur = 18 + 8 * Math.sin(t * 5);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(s.x, hy, 12, Math.PI * 0.8, Math.PI * 2.2);
+    ctx.lineTo(s.x, s.y - 3 - bounce * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(s.x, hy, 4.6, 0, Math.PI * 2); ctx.fill();
+    // Beschriftungs-Fahne
+    const title = `Hier: ${this.pin.label || ''}`;
+    const sub = this.pin.sub || '';
+    ctx.font = '700 13px "Chakra Petch", ui-sans-serif, system-ui';
+    const tw = ctx.measureText(title).width;
+    ctx.font = '500 11px "IBM Plex Sans", ui-sans-serif, system-ui';
+    const sw = sub ? ctx.measureText(sub).width : 0;
+    const bw = Math.min(this.cw - 16, Math.max(tw, sw) + 22);
+    const bh = sub ? 40 : 26;
+    let bx = s.x + 18; let by = hy - bh / 2;
+    if (bx + bw > this.cw - 8) bx = s.x - 18 - bw;
+    bx = Math.max(8, bx); by = Math.max(8, Math.min(this.ch - bh - 8, by));
+    ctx.fillStyle = 'rgba(12,8,16,0.94)';
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 8); else ctx.rect(bx, by, bw, bh);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.fillRect(bx, by + 6, 3, bh - 12);
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = '700 13px "Chakra Petch", ui-sans-serif, system-ui';
+    ctx.fillStyle = '#fff';
+    const clipText = (txt, max) => { let x = txt; while (x.length > 3 && ctx.measureText(x).width > max) x = `${x.slice(0, -2)}…`; return x; };
+    ctx.fillText(clipText(title, bw - 20), bx + 11, by + (sub ? 14 : bh / 2));
+    if (sub) {
+      ctx.font = '500 11px "IBM Plex Sans", ui-sans-serif, system-ui';
+      ctx.fillStyle = '#fbcfe8';
+      ctx.fillText(clipText(sub, bw - 20), bx + 11, by + 29);
+    }
+    ctx.restore();
+    this.pinBox = { x: bx, y: by, w: bw, h: bh, px: s.x, py: hy };
+  }
 
   zoomAt(factor, sx, sy) {
     const before = this.toWorld(sx, sy);
@@ -294,7 +397,7 @@ export class HallMap {
       return;
     }
 
-    const v = this.vehicleAt(p);
+    const v = this.pin && this.pinHit(s) ? null : this.vehicleAt(p);   // v5.3: Pin hat Vorrang
     if (v && canEdit()) {
       const pose = this.poses.get(v.id) || this.targetPose(v);
       this.drag = { ...base, type: 'vehicle', id: v.id, offset: { x: p.x - pose.x, y: p.y - pose.y } };
@@ -333,7 +436,7 @@ export class HallMap {
         const hoverObj = !this.hoverVehicle && store.mode === 'hall' && !store.builder ? this.objectAt(p, ['shelf', 'fridge', 'tyrestack']) : null;
         const sel = store.builder ? store.objects.find((o) => o.id === this.builderSelId) : null;
         this.c.style.cursor = sel && this.onResizeHandle(s, sel) ? 'nwse-resize'
-          : (this.hoverVehicle || hoverObj || (store.builder && this.objectAt(p))) ? 'pointer'
+          : (this.hoverVehicle || hoverObj || (store.builder && this.objectAt(p)) || (this.pin && this.pinHit(s))) ? 'pointer'
             : store.mode === 'blueprint' && this.bp.edit && this.bp.tool !== 'select' ? 'crosshair' : 'grab';
       }
       return;
@@ -403,6 +506,9 @@ export class HallMap {
       this.h.onBuilderSelect && this.h.onBuilderSelect(obj);
       return;
     }
+
+    // v5.3: Such-Pin antippen = ganz nah heranzoomen
+    if (this.pin && this.pinHit(d.last)) { this.h.onPinClick && this.h.onPinClick(this.pin); return; }
 
     const v = this.vehicleAt(p);
     // Tap-to-Move: Auto ist ausgewählt -> Ziel antippen
@@ -535,6 +641,7 @@ export class HallMap {
     ctx.restore();
 
     this.drawLabels(ctx);
+    if (!bp) this.drawPin(ctx);   // v5.3
     if (!bp) this.drawHoverCard(ctx);
   }
 
@@ -1003,6 +1110,18 @@ export class HallMap {
     if (v.open_tasks > 0 && !dragging) {
       this.label(pose.x + r.w / 2 - 0.1, r.y + 0.25, String(v.open_tasks), { size: 9.5, color: '#0b0b0b', bg: '#f59e0b', weight: 800, circle: true });
     }
+    // v5.3: Arbeit unterbrochen ("Nicht fertig geworden"): gestrichelter Warnrahmen + Badge mit Rest-To-do
+    if (v.paused_tasks > 0 && !dragging) {
+      const pw = 0.6 + 0.4 * Math.sin(this.time * 3);
+      ctx.save();
+      ctx.strokeStyle = `rgba(249,115,22,${0.55 + 0.45 * pw})`;
+      ctx.lineWidth = 0.07;
+      ctx.setLineDash([0.28, 0.18]);
+      ctx.lineDashOffset = -this.time * 0.6;
+      ctx.strokeRect(r.x - 0.16, r.y - 0.16, r.w + 0.32, r.h + 0.32);
+      ctx.restore();
+      this.label(pose.x, r.y + r.h + (v.slot_id ? 0.74 : 1.14), '⏸ IN ARBEIT · TO-DO OFFEN', { size: 9, color: '#1a0f00', bg: `rgba(249,115,22,${0.78 + 0.22 * pw})`, weight: 800, font: 'display', spacing: 0.5 });
+    }
   }
 
   drawBuilderSelection(ctx) {
@@ -1182,7 +1301,9 @@ export class HallMap {
     if (!v || !this.mouse || (this.drag && this.drag.active)) return;
     const st = statusInfo(v.status);
     const s = this.toScreen(this.mouse.x, this.mouse.y);
-    const lines = [v.name, `${modelInfo(v.model).label}`, `● ${st.label}${v.open_tasks ? ` · ${v.open_tasks} offen` : ''}`, v.next_event ? `⚑ ${v.next_event.name} · ${v.next_event.date_start.split('-').reverse().join('.')}` : null].filter(Boolean);
+    const note = v.paused_note ? (v.paused_note.length > 46 ? `${v.paused_note.slice(0, 45)}…` : v.paused_note) : null;
+    const lines = [v.name, `${modelInfo(v.model).label}`, `● ${st.label}${v.open_tasks ? ` · ${v.open_tasks} offen` : ''}`, v.next_event ? `⚑ ${v.next_event.name} · ${v.next_event.date_start.split('-').reverse().join('.')}` : null,
+      note ? `⏸ Noch zu tun: ${note}` : null].filter(Boolean);
     ctx.save();
     ctx.font = '600 12px "IBM Plex Sans", system-ui';
     const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 22;
@@ -1197,7 +1318,7 @@ export class HallMap {
     if (ctx.roundRect) ctx.roundRect(x, y, w, h, 8); else ctx.rect(x, y, w, h);
     ctx.fill(); ctx.stroke();
     lines.forEach((l, i) => {
-      ctx.fillStyle = i === 0 ? '#fff' : i === 2 ? st.color : '#94a3b8';
+      ctx.fillStyle = i === 0 ? '#fff' : i === 2 ? st.color : l.startsWith('⏸') ? '#fdba74' : '#94a3b8';
       ctx.font = `${i === 0 ? 700 : 500} ${i === 0 ? 13 : 11.5}px "IBM Plex Sans", system-ui`;
       ctx.fillText(l, x + 11, y + 20 + i * 18);
     });

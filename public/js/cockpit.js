@@ -12,6 +12,8 @@ import { renderSetupTab } from './setup.js';
 import { printLabels } from './qr.js';
 import { dimsFields, bindDims, dimsPayload } from './dims.js';   // v4.1: Radmaße + KI-Auto-Fill
 import { renderQuickSpecs } from './quickspecs.js';             // v5.2: Spickzettel
+import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan } from './workload.js';   // v5.3: Zeit, Zuweisung, Pause
+import { track } from './track.js';                              // v5.3: Aktivitäts-Log
 
 const TABS = [
   ['tasks', 'Aufgaben', 'list'], ['quick', 'Quick Specs', 'gauge'], ['log', 'Wartungsheft', 'book'], ['budget', 'Budget', 'euro'], ['docs', 'Dokumente', 'file'],
@@ -39,6 +41,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
     <nav class="tabs px-3 border-b border-white/10 sticky top-0 z-10 bg-[#121821]" data-tabs></nav>
     <div class="px-5 py-4" data-content></div></div>`);
   const m = openModal({ title: data.vehicle.name, subtitle: modelInfo(data.vehicle.model).label, size: 'xl', iconName: 'car', body });
+  track(`Öffnete Cockpit: ${data.vehicle.name}`, 'open');
   const head = body.querySelector('[data-head]');
   const tabsEl = body.querySelector('[data-tabs]');
   const content = body.querySelector('[data-content]');
@@ -129,24 +132,35 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
           <button class="btn btn-primary">${icon('plus')} Hinzufügen</button>
           <input class="input col-span-2 sm:col-span-2 text-sm" name="description" placeholder="Details (optional)">
           <input class="input col-span-2 sm:col-span-1 text-sm sm:!w-36" name="cost" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Preis €" title="Optional: Preis, erscheint automatisch im Budget">
+          <select class="select text-sm" name="assigned_user" title="Zuständig (leer = offener Pool, frei für jeden)">
+            <option value="">Zuständig: offen für alle</option>
+            ${(store.users || []).filter((u) => u.role !== 'gast').map((u) => html`<option value="${u.id}">${u.name}</option>`)}
+          </select>
+          <input class="input text-sm" name="estimated_hours" type="number" step="0.25" min="0" inputmode="decimal" placeholder="Zeit (Std.)" title="Geschätzter Aufwand in Stunden, z. B. 2,5">
+          <input class="input col-span-2 sm:col-span-1 text-sm" name="target_date" type="date" title="Zieldatum (geplante Fertigstellung)">
         </form>
         <div class="flex items-center gap-2 mb-3 text-xs text-slate-400">
           <label class="flex items-center gap-2">Km-Stand fürs Protokoll <input class="input !w-32 !py-1 text-sm" type="number" data-mileage placeholder="${data.vehicle.mileage || ''}"></label>
         </div>` : ''}
       <div class="space-y-2">
         ${open.length ? open.map((t) => html`
-          <div class="card px-3 py-3 flex items-start gap-3 ${t.priority === 1 ? 'urg-critical' : t.priority === 3 ? 'urg-none' : 'urg-planned'}">
+          <div class="card px-3 py-3 flex items-start gap-3 ${t.priority === 1 ? 'urg-critical' : t.priority === 3 ? 'urg-none' : 'urg-planned'} ${t.paused_at ? 'task-is-paused' : ''}">
             ${canEdit() ? html`<button class="mt-0.5 w-6 h-6 rounded-md border-2 border-slate-500 hover:border-lime-400 hover:bg-lime-400/20 shrink-0" data-done="${t.id}" title="Erledigt: wandert mit Datum + User ins Wartungsheft"></button>` : ''}
             <div class="flex-1 min-w-0">
               <div class="font-semibold text-white">${t.title}</div>
               ${t.description ? html`<div class="text-sm text-slate-400">${t.description}</div>` : ''}
+              <div class="flex flex-wrap gap-1 mt-1.5">${taskMetaChips(t)}</div>
+              ${pausedBox(t)}
               <div class="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-2">angelegt ${fmtDate(t.created_at)}${t.created_by_name ? ` von ${t.created_by_name}` : ''}
                 ${t.cost ? html`<span class="text-amber-300">${euro(t.cost)} · im Budget</span>` : ''}</div>
             </div>
             ${canEdit() ? html`
+              <div class="flex flex-wrap justify-end gap-1 max-w-[5.5rem] sm:max-w-none">
               <button class="btn-icon" data-taskcost="${t.id}" title="Preis festlegen (erscheint automatisch im Budget)">${icon('euro')}</button>
+              <button class="btn-icon" data-taskplan="${t.id}" title="Planen: zuständig, Zeit, Zieldatum">${icon('clock')}</button>
+              <button class="btn-icon ${t.paused_at ? '!text-amber-300' : ''}" data-taskpause="${t.id}" title="Arbeit pausieren / Nicht fertig">${icon('pause')}</button>
               <button class="btn-icon" data-worktask="${t.id}" title="Ich schraube daran">${icon('wrench')}</button>
-              <button class="btn-icon hover:!text-rose-300" data-deltask="${t.id}" title="Löschen">${icon('trash')}</button>` : ''}
+              <button class="btn-icon hover:!text-rose-300" data-deltask="${t.id}" title="Löschen">${icon('trash')}</button></div>` : ''}
           </div>`) : html`<div class="card p-6 text-center text-slate-400">${icon('check', 'w-6 h-6 mx-auto mb-2 text-lime-400')}Keine offenen Aufgaben. Fahrbereit?</div>`}
       </div>
       ${done.length ? html`
@@ -169,7 +183,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
 
   function logList() {
     const q = logQuery.trim().toLowerCase();
-    const rows = data.log.filter((l) => !q || `${l.title} ${l.description || ''}`.toLowerCase().includes(q));
+    const rows = data.log.filter((l) => !q || `${l.title} ${l.description || ''} ${l.parts_used || ''}`.toLowerCase().includes(q));
     const totalCost = rows.reduce((a, l) => a + (l.cost || 0), 0);
     return html`
       <div class="text-xs text-slate-500 mb-2">${rows.length} Einträge${totalCost ? ` · Summe ${euro(totalCost)}` : ''}</div>
@@ -182,6 +196,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
               <span class="font-semibold text-white">${highlight(l.title, q)}</span>
             </div>
             ${l.description ? html`<div class="text-sm text-slate-400">${highlight(l.description, q)}</div>` : ''}
+            ${l.parts_used ? html`<div class="text-[12px] text-cyan-200/80">${icon('package', 'w-3 h-3 inline')} ${highlight(l.parts_used, q)}</div>` : ''}
             <div class="text-[11px] text-slate-500 mt-0.5 flex flex-wrap gap-x-3">
               ${l.user_name ? html`<span>${icon('user', 'w-3 h-3 inline')} ${l.user_name}</span>` : ''}
               ${l.mileage ? html`<span>${Number(l.mileage).toLocaleString('de-DE')} km</span>` : ''}
@@ -196,16 +211,20 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
 
   function tabLog() {
     setHTML(content, html`
-      <div class="relative mb-4">
-        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">${icon('search')}</span>
-        <input class="input !pl-9" placeholder="Wartungsheft durchsuchen, z. B. Benzinfilter" value="${logQuery}" data-logsearch>
+      <div class="flex flex-col sm:flex-row gap-2 mb-4">
+        <div class="relative flex-1">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">${icon('search')}</span>
+          <input class="input !pl-9" placeholder="Wartungsheft durchsuchen, z. B. Benzinfilter" value="${logQuery}" data-logsearch>
+        </div>
+        <button class="btn shrink-0 pdf-btn" data-pdf title="Druckfertiges DIN-A4-PDF mit allen Einträgen">📄 Wartungshistorie als PDF exportieren</button>
       </div>
       ${canEdit() ? html`
         <details class="card p-3 mb-4">
           <summary class="cursor-pointer text-sm font-semibold text-slate-300">${icon('plus', 'w-4 h-4 inline')} Manueller Eintrag</summary>
           <form class="grid grid-cols-2 gap-2 mt-3" data-form="log">
             <input class="input col-span-2" name="title" placeholder="Was wurde gemacht?" required>
-            <textarea class="input col-span-2" name="description" rows="2" placeholder="Details, Teilenummern …"></textarea>
+            <textarea class="input col-span-2" name="description" rows="2" placeholder="Details, Notizen …"></textarea>
+            <input class="input col-span-2" name="parts_used" placeholder="Verwendete Teile / Flüssigkeiten (optional), z. B. Mann HU 925/4x, 5,5 L 5W40">
             <input class="input" name="mileage" type="number" placeholder="Km-Stand">
             <input class="input" name="cost" type="number" step="0.01" placeholder="Kosten €">
             <input class="input" name="done_at" type="date" value="${new Date().toISOString().slice(0, 10)}">
@@ -500,6 +519,12 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
         await put(`/tasks/${ds.taskcost}`, { cost });
         toast(cost ? 'Preis gespeichert und im Budget geführt.' : 'Preis entfernt.', 'ok');
         await reload();
+      } else if (ds.taskplan || ds.taskpause) {
+        const t = data.tasks.find((x) => x.id === Number(ds.taskplan || ds.taskpause));
+        if (t) (ds.taskpause ? openPauseDialog : openTaskPlan)({ ...t, vehicle_name: data.vehicle.name }, () => reload());
+      } else if ('pdf' in ds) {
+        track(`Wartungshistorie als PDF exportiert: ${data.vehicle.name}`, 'export');
+        window.open(`/api/vehicles/${id}/history.pdf`, '_blank', 'noopener');
       } else if (ds.worktask) {
         await post('/work', { task_id: Number(ds.worktask), vehicle_id: id });
         toast('Eingetragen: du schraubst daran.', 'ok');

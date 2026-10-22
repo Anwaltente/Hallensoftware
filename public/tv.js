@@ -56,7 +56,7 @@ function renderTasks() {
     <div class="panel"><div class="h">Heute zu tun</div>
       ${urgent.length ? urgent.map((t) => `
         <div class="task ${esc(t.urgency)}"><span class="t">${esc(t.title)}</span>
-          <span class="car"><span class="dot" style="background:${esc(t.vehicle_color)}"></span>${esc(t.vehicle_name)} · ${esc(t.event_name)} in ${t.daysLeft} T</span></div>`).join('')
+          <span class="car"><span class="dot" style="background:${esc(t.vehicle_color)}"></span>${esc(t.vehicle_name)} · ${dueText(t)}${t.paused_at ? ' · ⏸ nicht fertig' : ''}</span></div>`).join('')
         : '<div class="big-empty" style="color:#a3e635">Alle Event-Autos sind startklar!</div>'}
       ${hallTasks.length ? `<div class="h" style="margin-top:2vh">Hallen-To-Dos</div>${hallTasks.slice(0, urgent.length > 5 ? 2 : 5).map((t) => `<div class="task"><span class="t">${esc(t.title)}</span><span class="car">Halle</span></div>`).join('')}` : ''}
     </div>`;
@@ -218,12 +218,18 @@ function wWork() {
     ${urgent.length ? `<div class="w-sub">Als Nächstes</div>${urgent.slice(0, work.length ? 3 : 6).map((t) => `<div class="task ${esc(t.urgency)}"><span class="t">${esc(t.title)}</span><span class="car">${esc(t.vehicle_name)}</span></div>`).join('')}` : ''}`;
 }
 
+/* v5.3: eigenes Zieldatum statt Event als Deadline */
+function dueText(t) {
+  if (t.deadline_kind === 'target') return t.target_overdue ? 'Zieldatum überfällig' : `Ziel in ${t.daysLeft} T`;
+  return `${esc(t.event_name)} in ${t.daysLeft} T`;
+}
+
 function wTasks() {
   const urgent = (data.tasks && data.tasks.urgent) || [];
   const hallTasks = (data.tasks && data.tasks.hall) || [];
   if (!urgent.length && !hallTasks.length) return '<div class="w-empty ok">Alles erledigt. Startklar!</div>';
   return `${urgent.slice(0, 8).map((t) => `<div class="task ${esc(t.urgency)}"><span class="t">${esc(t.title)}</span>
-      <span class="car"><span class="dot" style="background:${esc(t.vehicle_color)}"></span>${esc(t.vehicle_name)} · ${esc(t.event_name)} in ${t.daysLeft} T</span></div>`).join('')}
+      <span class="car"><span class="dot" style="background:${esc(t.vehicle_color)}"></span>${esc(t.vehicle_name)} · ${dueText(t)}${t.paused_at ? ' · ⏸ nicht fertig' : ''}</span></div>`).join('')}
     ${hallTasks.slice(0, Math.max(0, 8 - urgent.length)).map((t) => `<div class="task"><span class="t">${esc(t.title)}</span><span class="car">Halle</span></div>`).join('')}`;
 }
 

@@ -22,6 +22,8 @@ import { openPartForm, openToolForm } from './storage.js';
 import { openStockIn, openGebinde, openQuickUse } from './quickuse.js';
 import { openPacklist, openEventEditor } from './events.js';
 import { applyHud, fmtQty } from './hud.js';
+import { canOfferInstall, installApp } from './pwa.js';   // v5.3
+import { openWorkload } from './workload.js';               // v5.3
 
 const VIEW_KEY = 'halle.view';
 const TAB_KEY = 'halle.biz.tab';
@@ -104,6 +106,9 @@ export function openProfileMenu(anchor, { onLogout } = {}) {
     <button class="it ${biz ? 'on' : ''}" data-view="biz" role="menuitemradio"><span class="radio"></span>Ansicht: Enterprise (Büro / ERP)<span class="r"><kbd>Alt</kbd>+<kbd>B</kbd></span></button>
     ${biz ? '' : html`<button class="it" data-act="sound">${isMuted() ? '🔇' : '🔊'} Ton ${isMuted() ? 'einschalten' : 'ausschalten'}</button>`}
     <hr>
+    <button class="it" data-act="workload">${icon('users', 'w-4 h-4')} Team-Auslastung</button>
+    ${canOfferInstall() ? html`<button class="it" data-act="install">${icon('phone', 'w-4 h-4')} Als App auf den Homescreen</button>` : ''}
+    <hr>
     <button class="it" data-act="logout">${icon('logout', 'w-4 h-4')} Profil wechseln / Abmelden</button>
     <div class="sec" style="text-transform:none;letter-spacing:0;font-weight:400">Alt+B wechselt die Ansicht. Esc schaltet sofort ins Büro.</div>
   </div>`);
@@ -117,6 +122,8 @@ export function openProfileMenu(anchor, { onLogout } = {}) {
     if (v) { setBiz(v.dataset.view === 'biz'); closeMenu(); }
     if (a && a.dataset.act === 'sound') { toggleMute(); closeMenu(); }
     if (a && a.dataset.act === 'logout') { closeMenu(); if (onLogout) onLogout(); }
+    if (a && a.dataset.act === 'workload') { closeMenu(); openWorkload(); }
+    if (a && a.dataset.act === 'install') { closeMenu(); installApp(); }
   });
   setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
 }

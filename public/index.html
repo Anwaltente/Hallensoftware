@@ -4,9 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
   <meta name="theme-color" content="#0a0d12">
+  <!-- v5.3: Progressive Web App (iPhone & Android: "Zum Home-Bildschirm", startet ohne Adressleiste) -->
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Halle">
+  <meta name="application-name" content="Hallen-Manager">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
   <title>HALLE//OS · Werkstatt-Management</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0d12'/%3E%3Cpath d='M6 26V12l10-6 10 6v14' fill='none' stroke='%2322d3ee' stroke-width='3'/%3E%3Crect x='11' y='17' width='10' height='9' fill='%23facc15'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
 
   <!-- Schriften -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -42,7 +52,7 @@
 
   <div id="app" class="h-[100dvh] flex flex-col">
     <!-- ============ Kopfzeile ============ -->
-    <header class="tread h-14 shrink-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 border-b border-white/10 relative z-20">
+    <header id="topBar" class="tread h-14 shrink-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 border-b border-white/10 relative z-20">
       <div class="flex items-center gap-2.5 mr-1">
         <div class="game-only w-8 h-8 rounded-md hazard-anim ring-1 ring-black/60 shadow-[0_0_14px_rgba(250,204,21,.35)]"></div>
         <div class="biz-only biz-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
@@ -110,6 +120,9 @@
           <button class="btn-icon" data-zoom="out" title="Herauszoomen"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg></button>
           <button class="btn-icon" data-zoom="fit" title="Alles zeigen"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
         </div>
+
+        <!-- v5.3: Such-Pin ("Hier: 10er Nuss") -->
+        <div id="pinBar" class="hidden absolute left-1/2 -translate-x-1/2 top-3 z-20 max-w-[calc(100%-1.5rem)]"></div>
 
         <!-- Overlay: Auswahl (Tap-to-Move) -->
         <div id="selectionBar" class="hidden absolute left-1/2 -translate-x-1/2 bottom-16 lg:bottom-4 z-20"></div>

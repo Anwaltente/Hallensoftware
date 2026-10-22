@@ -167,6 +167,17 @@ Bestehende Datenbanken werden beim Start automatisch migriert (neue Tabellen, ne
 
 Details: `AENDERUNGEN-v5.2.md`.
 
+## Neu in Version 5.3
+
+* **App auf dem Homescreen (PWA):** iPhone (Safari: Teilen → Zum Home-Bildschirm) und Android (Menü → App installieren). Startet als „Halle“ im Vollbild ohne Adressleiste.
+* **Aktivitäts- & Audit-Log:** Admin → Aktivität. Meilensteine (Anmeldungen, Materialentnahmen, Umparken, erledigte/pausierte To-dos, Setup-Änderungen) oder alle Klicks, Filter nach Person, Zeitraum, Suchtext.
+* **Akkordeon-Regal am Handy:** Regal-Tabs, Etagen zum Aufklappen, Boxen als Kacheln, Box-Inhalt mit Suchzeile. Standardmäßig eingeklappt.
+* **Wartungshistorie als PDF** (Cockpit → Wartungsheft): druckfertiges DIN A4 mit Fahrzeugkopf und Tabelle.
+* **Such-Pin auf der Karte:** Suchtreffer (Teile, Werkzeug, Boxen) zeigen einen pulsierenden Pin „Hier: …“ am Lagerort; antippen zoomt hin.
+* **Team-Koordination:** Zeitschätzung, Zuständig, Zieldatum, „Arbeit pausieren / Nicht fertig“ mit Rest-To-do (Warn-Badge am Auto) und Team-Auslastung mit Drag & Drop.
+
+Details: `AENDERUNGEN-v5.3.md`.
+
 ## Projektstruktur
 
 ```
@@ -186,6 +197,10 @@ server/
     dims.js                v4.1: Radaußenbreite (Spur + Reifenbreite)
     stock.js               v4.2: Gebinde-Summe und Abzug (angebrochen zuerst, dann kleinstes Gebinde)
     budget.js              v5.1: Kosten aus Aufgaben und Wartungsheft automatisch im Budget
+    activity.js            v5.3: Aktivitäts-Log (gepuffert, ohne Geheimnisse), Middleware für Änderungen
+    pdf.js                 v5.3: schlanker PDF-Erzeuger ohne Zusatzpakete (A4, Helvetica, Umlaute)
+    history-pdf.js         v5.3: Wartungshistorie eines Fahrzeugs als PDF
+    locate.js              v5.3: Lagerort auf der Hallenkarte bestimmen (Such-Pin)
     turso/                 v5.1: Turso-Anbindung (config.js, database.js, replica.js, sync-http.js)
     queries.js, util.js    Gemeinsame Abfragen und Helfer
   routes/
@@ -204,6 +219,7 @@ server/
     tv.js                  v3: Daten und Einstellungen für das Hallen-TV
     hub.js                 v4: Schnell-Verbrauch, kritische Ressourcen, Einkaufsliste, Schwebe-Status
     dimensions.js          v4.1: KI-Serienmaße via Gemini (POST /api/cars/fetch-dimensions)
+    activity.js            v5.3: Klick-Protokoll (POST /api/activity/track), Admin-Ansicht (GET /api/admin/activity)
   devices/drivers.js       Treiber: mock, shelly, tasmota, webhook
 public/
   index.html               Layout (Tailwind CDN), Header, Map, Seitenleisten, Mobile-Navigation
@@ -238,6 +254,12 @@ public/
     biz.js                 v5: Büro-Ansicht, Alt+B / Esc, Profilmenü, ERP-Tabellen
     quickspecs.js          v5.2: Fahrzeug-Spickzettel (Cockpit-Reiter Quick Specs)
     admin-dash.js          v5.2: TV-Baukasten (Raster, Widgets, Seiten)
+    pwa.js                 v5.3: Service Worker registrieren, "Als App installieren"
+    track.js               v5.3: Klicks und Interaktionen fürs Aktivitäts-Log
+    workload.js            v5.3: Team-Auslastung, Planung (Zeit, Zuständig, Zieldatum), Arbeit pausieren
+    admin-activity.js      v5.3: Admin-Tab Aktivität (Meilensteine / alle Klicks)
+  manifest.json, sw.js     v5.3: Web-App-Manifest und Service Worker
+  icons/                   v5.3: App-Icons (192, 512, maskable, Apple Touch Icon, SVG)
   tv.html, tv.css, tv.js   v3: Hallen-TV (eigenständige Kiosk-Seite unter /tv)
 scripts/turso-import.js    v5.1: data/halle.db nach Turso kopieren (npm run turso:import)
 scripts/turso-backup.js    v5.1: Turso als SQLite-Datei sichern (npm run turso:backup)
@@ -318,6 +340,10 @@ Alle Endpunkte liegen unter `/api`. Lesen ab Rolle Gast, Schreiben ab Schrauber,
 | Methode | Pfad                                   | Zweck                                         |
 |---------|----------------------------------------|-----------------------------------------------|
 | GET     | `/bootstrap`                           | Kompletter Map-Zustand in einem Request       |
+| GET     | `/workload`                            | v5.3: Team-Auslastung (Aufgaben je Person + Pool) |
+| POST    | `/tasks/:id/pause` · `/assign`         | v5.3: Arbeit pausieren (Rest-To-do) · zuweisen |
+| GET     | `/vehicles/:id/history.pdf`            | v5.3: Wartungshistorie als PDF                |
+| GET     | `/admin/activity`                      | v5.3: Aktivitäts-Log (level, user, from, to, q) |
 | POST    | `/vehicles/:id/move`                   | Umparken `{ slotId \| null, slotPos, externLocation, swap }` |
 | GET     | `/vehicles/:id`                        | Cockpit-Daten (Aufgaben, Log, Budget, Dokumente) |
 | POST    | `/vehicles/:id/documents`              | Upload (multipart, Feld `file`)               |

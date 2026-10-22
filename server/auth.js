@@ -81,6 +81,8 @@ function guard(req, res, next) {
   // /tv/* prüft selbst den TV-Schlüssel (Kiosk ohne Login)
   if (req.path.startsWith('/auth/') || req.path === '/meta' || req.path === '/health' || req.path.startsWith('/tv/')) return next();
   if (!req.user) return res.status(401).json({ error: 'Bitte anmelden.' });
+  // v5.3: Klick-Protokoll dürfen auch Gäste senden (sie schreiben sonst nichts)
+  if (req.method === 'POST' && req.path === '/activity/track') return next();
   if (req.method !== 'GET' && ROLE_LEVEL[req.user.role] < ROLE_LEVEL.schrauber) {
     return res.status(403).json({ error: 'Nur-Lese-Modus (Hall Pass).' });
   }

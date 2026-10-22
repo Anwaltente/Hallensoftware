@@ -6,6 +6,7 @@
 import { app } from './state.js';
 import { get } from './api.js';
 import { html, setHTML, el, icon, openModal, topModal } from './ui.js';
+import { track } from './track.js';   // v5.3: Aktivitäts-Log
 
 const TYPE = {
   vehicle: { label: 'Auto', icon: 'car', color: 'text-cyan-300' },
@@ -54,6 +55,7 @@ export function openSpotlight() {
       return html`<button class="spot-item w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border border-transparent ${i === active ? 'active' : ''}" data-i="${i}">
         <span class="${t.color}">${icon(t.icon)}</span>
         <span class="flex-1 min-w-0"><span class="block text-sm font-semibold text-white truncate">${r.title}</span><span class="block text-xs text-slate-400 truncate">${r.subtitle || ''}</span></span>
+        ${r.pin && !document.documentElement.classList.contains('biz') ? html`<span class="spot-pin" title="Auf der Hallenkarte zeigen">${icon('pin', 'w-3.5 h-3.5')}</span>` : ''}
         <span class="chip !text-[10px]">${t.label}</span>
       </button>`;
     })}`);
@@ -65,8 +67,12 @@ export function openSpotlight() {
     const r = results[i];
     if (!r) return;
     m.close();
+    track(`Suchergebnis geöffnet: ${r.title}`, 'search');
+    // v5.3: Teile, Werkzeug, Boxen: leuchtender Pin am Lagerort auf der Hallenkarte
+    if (r.pin && app.showSearchPin && app.showSearchPin(r)) return;
     app.navigate(r.target);
   }
+  let trackTimer = null;
 
   input.addEventListener('input', () => {
     clearTimeout(timer);
@@ -78,6 +84,8 @@ export function openSpotlight() {
         const res = await get(`/search?q=${encodeURIComponent(q)}`);
         if (my !== seq) return;
         results = res; active = 0; render();
+        clearTimeout(trackTimer);
+        trackTimer = setTimeout(() => { if (input.value.trim() === q) track(`Startete Suche nach „${q}“ (${res.length} Treffer)`, 'search'); }, 1100);
       } catch { /* still */ }
     }, 140);
   });

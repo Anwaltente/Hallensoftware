@@ -9,6 +9,7 @@ const { getModels } = require('../lib/vehicleModels');
 const { listObjects, listVehicles, activeWork, listEvents } = require('../lib/queries');
 const { pick, insertRow, updateRow, mustGet, toNumOrNull, strOrNull, toIntOrNull } = require('../lib/util');
 
+const { locatePart, locateTool, locateBox, locateType } = require('../lib/locate');   // v5.3: Such-Pin auf der Karte
 const router = express.Router();
 
 router.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
@@ -113,17 +114,19 @@ router.get('/search', (req, res) => {
       WHERE p.name LIKE ? OR p.category LIKE ? OR p.part_number LIKE ? OR p.notes LIKE ? LIMIT 12`).all(like, like, like, like)) {
     const where = p.shelf_code ? `Regal ${p.shelf_code}${p.level ? ` · Etage ${p.level}` : ''}${p.box_label ? ` · ${p.box_label}` : ''}` : 'ohne Lagerort';
     out.push({ type: 'part', id: p.id, title: `${p.qty}× ${p.name}`, subtitle: `${where} · ${p.universal ? 'Universal' : p.vehicle_name || 'ohne Auto'}`,
-      target: p.shelf_id ? { kind: 'shelf', shelfId: p.shelf_id, level: p.level, boxId: p.box_id, highlight: `part:${p.id}` } : { kind: 'inventory', highlight: `part:${p.id}` } });
+      target: p.shelf_id ? { kind: 'shelf', shelfId: p.shelf_id, level: p.level, boxId: p.box_id, highlight: `part:${p.id}` } : { kind: 'inventory', highlight: `part:${p.id}` },
+      pin: locatePart(p) });
   }
-  for (const t of db.prepare(`SELECT t.id, t.name, t.location_text, t.shelf_id, t.level, t.box_id, t.wishlist, lo.code AS shelf_code, u.name AS borrower
+  for (const t of db.prepare(`SELECT t.id, t.name, t.location_text, t.shelf_id, t.level, t.box_id, t.wishlist, t.borrowed_vehicle_id, t.lent_to, lo.code AS shelf_code, u.name AS borrower
       FROM tools t LEFT JOIN layout_objects lo ON lo.id = t.shelf_id LEFT JOIN users u ON u.id = t.borrowed_by
       WHERE t.name LIKE ? OR t.category LIKE ? OR t.location_text LIKE ? LIMIT 8`).all(like, like, like)) {
-    const where = t.wishlist ? 'Wunschliste' : t.borrower ? `In Benutzung von ${t.borrower}` : t.shelf_code ? `Regal ${t.shelf_code}` : t.location_text || 'ohne Ort';
+    const where = t.wishlist ? 'Wunschliste' : t.lent_to ? `Verliehen an ${t.lent_to}` : t.borrower ? `In Benutzung von ${t.borrower}` : t.shelf_code ? `Regal ${t.shelf_code}` : t.location_text || 'ohne Ort';
     out.push({ type: 'tool', id: t.id, title: t.name, subtitle: where,
-      target: t.shelf_id ? { kind: 'shelf', shelfId: t.shelf_id, level: t.level, boxId: t.box_id, highlight: `tool:${t.id}` } : { kind: 'tools', highlight: `tool:${t.id}` } });
+      target: t.shelf_id ? { kind: 'shelf', shelfId: t.shelf_id, level: t.level, boxId: t.box_id, highlight: `tool:${t.id}` } : { kind: 'tools', highlight: `tool:${t.id}` },
+      pin: locateTool(t) });
   }
   for (const b of db.prepare(`SELECT b.*, lo.code AS shelf_code FROM boxes b JOIN layout_objects lo ON lo.id = b.shelf_id WHERE b.label LIKE ? LIMIT 6`).all(like)) {
-    out.push({ type: 'box', id: b.id, title: `Box „${b.label}“`, subtitle: `Regal ${b.shelf_code} · Etage ${b.level}`, target: { kind: 'shelf', shelfId: b.shelf_id, level: b.level, boxId: b.id } });
+    out.push({ type: 'box', id: b.id, title: `Box „${b.label}“`, subtitle: `Regal ${b.shelf_code} · Etage ${b.level}`, target: { kind: 'shelf', shelfId: b.shelf_id, level: b.level, boxId: b.id }, pin: locateBox(b) });
   }
   for (const t of db.prepare(`SELECT t.id, t.title, t.status, t.vehicle_id, v.name AS vehicle_name FROM tasks t LEFT JOIN vehicles v ON v.id = t.vehicle_id
       WHERE t.status = 'open' AND (t.title LIKE ? OR t.description LIKE ?) LIMIT 6`).all(like, like)) {
@@ -135,10 +138,12 @@ router.get('/search', (req, res) => {
   }
   for (const t of db.prepare(`SELECT dimension, brand, model, class, COUNT(*) AS n FROM tyres WHERE status = 'aktiv'
       AND (dimension LIKE ? OR brand LIKE ? OR model LIKE ?) GROUP BY dimension, brand, model, class LIMIT 5`).all(like, like, like)) {
-    out.push({ type: 'tyre', id: 0, title: `${t.n}× ${t.dimension} ${t.brand || ''} ${t.model || ''}`.trim(), subtitle: `Reifenlager · ${t.class === 'drift' ? 'Driftreifen' : 'Straße'}`, target: { kind: 'tyres' } });
+    out.push({ type: 'tyre', id: 0, title: `${t.n}× ${t.dimension} ${t.brand || ''} ${t.model || ''}`.trim(), subtitle: `Reifenlager · ${t.class === 'drift' ? 'Driftreifen' : 'Straße'}`, target: { kind: 'tyres' },
+      pin: locateType('tyrestack', `${t.n}× ${t.dimension}`, 'Reifenlager') });
   }
   for (const s of db.prepare("SELECT id, name, qty, unit, min_qty FROM supplies WHERE category = 'kuehlschrank' AND name LIKE ? LIMIT 4").all(like)) {
-    out.push({ type: 'supply', id: s.id, title: `${s.name}: ${s.qty} ${s.unit}`, subtitle: s.qty < s.min_qty ? 'Kühlschrank-Radar · fast leer!' : 'Kühlschrank-Radar', target: { kind: 'fridge' } });
+    out.push({ type: 'supply', id: s.id, title: `${s.name}: ${s.qty} ${s.unit}`, subtitle: s.qty < s.min_qty ? 'Kühlschrank-Radar · fast leer!' : 'Kühlschrank-Radar', target: { kind: 'fridge' },
+      pin: locateType('fridge', s.name, 'Kühlschrank') });
   }
   for (const e of db.prepare('SELECT id, name, date_start FROM events WHERE name LIKE ? OR location LIKE ? LIMIT 4').all(like, like)) {
     out.push({ type: 'event', id: e.id, title: e.name, subtitle: `Event · ${e.date_start}`, target: { kind: 'event', eventId: e.id } });

@@ -13,6 +13,8 @@ const { hasModel } = require('../lib/vehicleModels');
 const { listVehicles } = require('../lib/queries');
 const { outerWidth } = require('../lib/dims');
 const { pick, insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, parseJSON, nowIso } = require('../lib/util');
+const activity = require('../lib/activity');   // v5.3: Umparken im Aktivitäts-Log
+const { historyPdf } = require('../lib/history-pdf');   // v5.3: Wartungshistorie als PDF
 
 const router = express.Router();
 
@@ -56,8 +58,10 @@ router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
   const vehicle = listVehicles().find((v) => v.id === id);
   if (!vehicle) throw httpError(404, 'Fahrzeug nicht gefunden.');
-  const tasks = db.prepare(`SELECT t.*, cu.name AS created_by_name, du.name AS done_by_name FROM tasks t
+  const tasks = db.prepare(`SELECT t.*, cu.name AS created_by_name, du.name AS done_by_name,
+      au.name AS assigned_name, au.color AS assigned_color, pu.name AS paused_by_name FROM tasks t
     LEFT JOIN users cu ON cu.id = t.created_by LEFT JOIN users du ON du.id = t.done_by
+    LEFT JOIN users au ON au.id = t.assigned_user LEFT JOIN users pu ON pu.id = t.paused_by
     WHERE t.vehicle_id = ? ORDER BY t.status, t.priority, t.created_at`).all(id);
   const log = db.prepare(`SELECT l.*, u.name AS user_name FROM maintenance_log l LEFT JOIN users u ON u.id = l.user_id
     WHERE l.vehicle_id = ? ORDER BY l.done_at DESC`).all(id);
@@ -74,6 +78,18 @@ router.get('/:id', (req, res) => {
     vehicle, tasks, log, purchases, documents, events, parts, work,
     budget: { todo: sum('todo'), bought: sum('bought'), total: sum('todo') + sum('bought') }
   });
+});
+
+/* v5.3: Wartungshistorie als druckfertiges PDF (DIN A4). ?download=1 lädt herunter, sonst Anzeige im Browser */
+router.get('/:id/history.pdf', (req, res) => {
+  const out = historyPdf(Number(req.params.id), { exportedBy: req.user && req.user.name });
+  if (!out) throw httpError(404, 'Fahrzeug nicht gefunden.');
+  const v = db.prepare('SELECT name FROM vehicles WHERE id = ?').get(Number(req.params.id));
+  activity.mark(req, 'pdf_export', `Wartungshistorie als PDF exportiert: ${v ? v.name : ''} (${out.rows} Einträge)`, { vehicle_id: Number(req.params.id) }, { high: false });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename="${out.filename}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(out.buffer);
 });
 
 router.post('/', (req, res) => {
@@ -106,10 +122,13 @@ router.post('/:id/move', (req, res) => {
   const v = mustGet('vehicles', req.params.id, 'Fahrzeug');
   const { slotId, slotPos, externLocation, swap } = req.body || {};
 
+  const where = (sid) => { const o = sid ? db.prepare('SELECT code, label FROM layout_objects WHERE id = ?').get(sid) : null; return o ? `${o.code || ''} ${o.label || ''}`.trim() : null; };
+  const fromLabel = v.slot_id ? where(v.slot_id) : `draußen (${v.extern_location || 'Paddock'})`;
   const tx = db.transaction(() => {
     if (slotId === null || slotId === undefined || slotId === '') {
-      db.prepare('UPDATE vehicles SET slot_id = NULL, slot_pos = 0, extern_location = ? WHERE id = ?')
-        .run(strOrNull(externLocation) || (v.slot_id ? 'Paddock' : v.extern_location) || 'Paddock', v.id);
+      const loc = strOrNull(externLocation) || (v.slot_id ? 'Paddock' : v.extern_location) || 'Paddock';
+      db.prepare('UPDATE vehicles SET slot_id = NULL, slot_pos = 0, extern_location = ? WHERE id = ?').run(loc, v.id);
+      activity.mark(req, 'vehicle_move', `Fahrzeug umgeparkt: ${v.name} von ${fromLabel} nach draußen (${loc})`, { vehicle_id: v.id, from: fromLabel, to: loc });
       return;
     }
     const slot = db.prepare("SELECT * FROM layout_objects WHERE id = ? AND type = 'slot'").get(slotId);
@@ -131,6 +150,9 @@ router.post('/:id/move', (req, res) => {
       pos = occupant.slot_pos;
     }
     db.prepare('UPDATE vehicles SET slot_id = ?, slot_pos = ?, extern_location = NULL WHERE id = ?').run(slot.id, pos, v.id);
+    const to = `${slot.code || ''} ${slot.label || ''}`.trim() + (cap > 1 ? (pos === 0 ? ' (oben)' : ' (unten)') : '');
+    activity.mark(req, 'vehicle_move', v.slot_id === slot.id ? `Fahrzeug umgestellt: ${v.name} auf ${to}` : `Fahrzeug umgeparkt: ${v.name} von ${fromLabel} nach ${to}`,
+      { vehicle_id: v.id, from: fromLabel, to, swap: !!swap });
   });
   tx();
   res.json(listVehicles());

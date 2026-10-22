@@ -10,6 +10,7 @@ import { $, html, setHTML, el, on, icon, toast, toastError, haptic, openModal, c
 import { ensureAdminUnlocked } from './auth.js';
 import { tabModels, tabTv } from './admin-v3.js';
 import { tabConsumables } from './admin-v4.js';   // v4: Verbrauch & kritische Ressourcen
+import { tabActivity } from './admin-activity.js';  // v5.3: Aktivitäts- & Audit-Log
 
 const OBJ_TYPES = {
   slot: { label: 'Stellplatz', w: 2.9, h: 5.0, color: '#94a3b8', props: { kind: 'standard', capacity: 1 } },
@@ -230,7 +231,7 @@ function fresh(c) {
   return n;
 }
 
-const CONSOLE_TABS = [['builder', 'Baukasten', 'grid'], ['users', 'Nutzer', 'users'], ['models', 'Fahrzeug-Modelle', 'car'], ['tv', 'TV-Dashboard', 'board'], ['consumables', 'Verbrauch & Kritisch', 'alert'],
+const CONSOLE_TABS = [['builder', 'Baukasten', 'grid'], ['activity', 'Aktivität', 'activity'], ['users', 'Nutzer', 'users'], ['models', 'Fahrzeug-Modelle', 'car'], ['tv', 'TV-Dashboard', 'board'], ['consumables', 'Verbrauch & Kritisch', 'alert'],
   ['hallpass', 'Hall Pass', 'link'], ['quick', 'Quick-Checks', 'flag'], ['import', 'CSV-Import', 'upload'], ['devices', 'Geräte', 'power'], ['system', 'System', 'settings']];
 
 export async function openAdminConsole() {
@@ -243,7 +244,7 @@ export async function openAdminConsole() {
   const render = () => {
     setHTML(tabsEl, html`${CONSOLE_TABS.map(([k, l, i]) => html`<button class="tab ${tab === k ? 'active' : ''}" data-t="${k}">${icon(i, 'w-3.5 h-3.5')} ${l}</button>`)}`);
     const content = body.querySelector('[data-content]');
-    ({ builder: tabBuilder, users: tabUsers, models: tabModels, tv: tabTv, consumables: tabConsumables, hallpass: tabHallpass, quick: tabQuick, import: tabImport, devices: tabDevices, system: tabSystem })[tab](content, m);
+    ({ builder: tabBuilder, activity: tabActivity, users: tabUsers, models: tabModels, tv: tabTv, consumables: tabConsumables, hallpass: tabHallpass, quick: tabQuick, import: tabImport, devices: tabDevices, system: tabSystem })[tab](content, m);
   };
   on(tabsEl, 'click', '[data-t]', (_e, b) => { tab = b.dataset.t; render(); });
   render();

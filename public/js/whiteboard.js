@@ -8,6 +8,7 @@ import { store, app, subscribe, canEdit, modelInfo, refreshWhiteboard, refreshVe
 import { get, post, del } from './api.js';
 import { html, setHTML, el, on, icon, toast, toastError, haptic, since, fmtDate, countdownLabel, openModal, initials } from './ui.js';
 import { carThumb } from './sprites.js';
+import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, openWorkload } from './workload.js';   // v5.3
 
 let root = null;
 let pending = false;
@@ -31,8 +32,9 @@ function isTyping() {
 
 function taskRow(t, { showEvent = true } = {}) {
   const editable = canEdit();
+  const working = (store.work || []).some((w) => w.task_id === t.id);
   return html`
-    <div class="card px-3 py-2.5 urg-${t.urgency || 'none'} group" data-task="${t.id}">
+    <div class="card px-3 py-2.5 urg-${t.urgency || 'none'} group ${t.paused_at ? 'task-is-paused' : ''}" data-task="${t.id}">
       <div class="flex items-start gap-2.5">
         ${editable ? html`<button class="mt-0.5 w-5 h-5 rounded border-2 border-slate-500 hover:border-lime-400 hover:bg-lime-400/20 shrink-0 grid place-items-center" data-act="done" title="Erledigt (ins Wartungsheft)"></button>` : ''}
         <div class="flex-1 min-w-0">
@@ -40,10 +42,16 @@ function taskRow(t, { showEvent = true } = {}) {
           <div class="flex flex-wrap items-center gap-1.5 mt-1">
             ${t.vehicle_name ? html`<span class="chip"><span class="dot" style="background:${t.vehicle_color}"></span>${t.vehicle_name}</span>` : html`<span class="chip">Halle</span>`}
             ${t.priority === 1 ? html`<span class="chip !text-rose-300 !border-rose-400/40">Prio hoch</span>` : ''}
-            ${showEvent && t.event_name ? html`<span class="chip ${t.urgency === 'critical' ? '!text-rose-200 !border-rose-400/50 !bg-rose-500/10' : t.urgency === 'soon' ? '!text-amber-200 !border-amber-400/50' : '!text-cyan-200 !border-cyan-400/40'}">${icon('flag', 'w-3 h-3')} ${t.event_name} · ${countdownLabel(t.daysLeft)}</span>` : ''}
+            ${showEvent && t.event_name && t.deadline_kind !== 'target' ? html`<span class="chip ${t.urgency === 'critical' ? '!text-rose-200 !border-rose-400/50 !bg-rose-500/10' : t.urgency === 'soon' ? '!text-amber-200 !border-amber-400/50' : '!text-cyan-200 !border-cyan-400/40'}">${icon('flag', 'w-3 h-3')} ${t.event_name} · ${countdownLabel(t.daysLeft)}</span>` : ''}
+            ${taskMetaChips(t)}
           </div>
+          ${pausedBox(t)}
         </div>
-        ${editable ? html`<button class="btn-icon !w-8 !h-8 opacity-60 group-hover:opacity-100" data-act="work" title="Ich schraube daran">${icon('wrench')}</button>` : ''}
+        ${editable ? html`<div class="flex flex-col gap-1 shrink-0">
+          <button class="btn-icon !w-8 !h-8 opacity-60 group-hover:opacity-100" data-act="work" title="Ich schraube daran">${icon('wrench')}</button>
+          ${working || t.paused_at ? html`<button class="btn-icon !w-8 !h-8 ${t.paused_at ? '!text-amber-300' : 'opacity-60 group-hover:opacity-100'}" data-act="pause" title="Arbeit pausieren / Nicht fertig">${icon('pause')}</button>`
+            : html`<button class="btn-icon !w-8 !h-8 opacity-60 group-hover:opacity-100" data-act="plan" title="Planen: wer, wie lange, bis wann">${icon('clock')}</button>`}
+        </div>` : ''}
       </div>
     </div>`;
 }
@@ -60,6 +68,7 @@ function render() {
   setHTML(root, html`
     <div class="px-4 pt-4 pb-3 border-b border-white/10 flex items-center gap-2 shrink-0">
       <h2 class="whiteboard-title text-xl text-white flex-1">Whiteboard</h2>
+      <button class="btn btn-sm" data-act="workload" title="Team-Auslastung: wer hat wie viel zu tun?">${icon('users', 'w-3.5 h-3.5')} Team</button>
       <button class="btn-icon" data-act="refresh" title="Aktualisieren">${icon('refresh')}</button>
     </div>
     <div class="flex-1 overflow-y-auto px-4 py-4 space-y-5">
@@ -74,6 +83,7 @@ function render() {
                 <div><b class="text-white">${w.user_name}</b> schraubt an <button class="text-cyan-300 hover:underline" data-act="vehicle" data-id="${w.vehicle_id || ''}">${w.vehicle_name || 'der Halle'}</button></div>
                 <div class="text-[11px] text-slate-400">${w.text || w.task_title || ''}${w.text || w.task_title ? ' · ' : ''}${since(w.started_at)}</div>
               </div>
+              ${me && w.user_id === me.id && w.task_id ? html`<button class="btn btn-sm !text-amber-200" data-act="pausework" data-task-id="${w.task_id}" title="Arbeit pausieren / Nicht fertig geworden">${icon('pause', 'w-3.5 h-3.5')}</button>` : ''}
               ${me && w.user_id === me.id ? html`<button class="btn btn-sm" data-act="stop" title="Fertig für heute">${icon('stop', 'w-3.5 h-3.5')}</button>` : ''}
             </div>`) : html`<p class="text-sm text-slate-500">Niemand aktiv.</p>`}
           ${canEdit() && !myWork ? html`<button class="btn w-full !justify-start" data-act="startwork">${icon('play', 'w-3.5 h-3.5')} Woran schraubst du gerade?</button>` : ''}
@@ -94,7 +104,7 @@ function render() {
 
       <!-- PRIORITÄT -->
       <section>
-        <h3 class="font-display text-xs font-bold tracking-[0.2em] text-slate-300 mb-2">PRIORITÄT NACH EVENT-DEADLINE</h3>
+        <h3 class="font-display text-xs font-bold tracking-[0.2em] text-slate-300 mb-2">PRIORITÄT NACH DEADLINE</h3>
         ${!wb ? html`<p class="text-sm text-slate-500">Lädt …</p>` : wb.urgent.length
           ? html`<div class="space-y-2">${wb.urgent.map((t) => taskRow(t))}</div>`
           : html`<div class="card p-3 border-lime-400/30 text-sm"><div class="text-lime-300 font-semibold">${icon('check', 'w-4 h-4 inline')} Alle Event-Autos sind startklar!</div><div class="text-slate-400 mt-1">Zeit für die Halle. Vorschläge:</div></div>
@@ -181,6 +191,18 @@ function bind() {
         if (t && t.vehicle_id) app.navigate({ kind: 'vehicle', vehicleId: t.vehicle_id, tab: 'tasks' });
       }
       if (act === 'stop') { await post('/work/stop'); toast('Feierabend eingetragen. Gute Arbeit!'); await afterChange(); }
+      // v5.3: Team-Koordination
+      if (act === 'workload') openWorkload();
+      if (act === 'pause' || act === 'plan') {
+        const t = findTask(taskId);
+        if (t) (act === 'pause' ? openPauseDialog : openTaskPlan)(t, afterChange);
+      }
+      if (act === 'pausework') {
+        const id = Number(btn.dataset.taskId);
+        let t = findTask(id);
+        if (!t) { const all = await get('/tasks?status=open'); t = all.find((x) => x.id === id); }
+        if (t) openPauseDialog(t, afterChange);
+      }
       if (act === 'startwork') openWorkDialog();
       if (act === 'vehicle' && btn.dataset.id) app.navigate({ kind: 'vehicle', vehicleId: Number(btn.dataset.id) });
       if (act === 'event') app.navigate({ kind: 'event', eventId: Number(btn.dataset.id) });

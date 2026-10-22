@@ -73,7 +73,8 @@ export async function showLogin() {
 }
 
 export async function logout() {
-  try { await post('/auth/logout'); } catch { /* egal */ }
+  try { if (window.HALLE_TRACK_FLUSH) await window.HALLE_TRACK_FLUSH(); } catch { /* egal */ }   // v5.3: offene Klicks noch senden
+  try { await post('/auth/logout', { reason: 'switch' }); } catch { /* egal */ }
   setState({ me: null, adminUnlocked: false, builder: false }, ['me', 'builder']);
   showLogin();
 }

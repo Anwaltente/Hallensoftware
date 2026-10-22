@@ -83,6 +83,11 @@ const ICONS = {
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
   print: '<path d="M6 9V2h12v7"/><rect x="2" y="9" width="20" height="9" rx="2"/><path d="M6 14h12v8H6z"/>',
   alert: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  pin: '<path d="M12 21s-7-6.4-7-12a7 7 0 0 1 14 0c0 5.6-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
   play: '<path d="M6 4l14 8-14 8z"/>',
   stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
@@ -295,6 +300,7 @@ export function pinPad({ title = 'PIN eingeben', subtitle = '' } = {}) {
         </div>`,
       onClose: () => { if (!answered) resolve(null); }
     });
+    m.el.setAttribute('data-nolog', '1');   // v5.3: PIN-Eingaben landen nie im Aktivitäts-Log
     const dots = m.body.querySelector('[data-dots]');
     const render = () => setHTML(dots, html`${Array.from({ length: Math.max(4, pin.length) }, (_, i) => html`<span class="pin-dot ${i < pin.length ? 'on' : ''}"></span>`)}`);
     render();

@@ -23,6 +23,8 @@
  *   v3: routes/fleet.js (Modelle, Anhänger, Gespann-Rechner), routes/tv.js (Hallen-TV unter /tv und /dashboard)
  *   v4: routes/hub.js (Schnell-Verbrauch, kritische Ressourcen, Einkaufsliste, Schwebe-Status)
  *   v4.1: routes/dimensions.js (Serienmaße via Gemini, Schlüssel GEMINI_API_KEY aus .env)
+ *   v5.3: routes/activity.js + lib/activity.js (Aktivitäts-Log), lib/pdf.js (Wartungshistorie als PDF),
+ *         public/manifest.json + public/sw.js (App auf dem Homescreen)
  *   public/                 Frontend (Tailwind CDN + Vanilla JS Module + Canvas)
  */
 const path = require('path');
@@ -55,10 +57,18 @@ if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
 app.use(express.json({ limit: '5mb' }));
 // v3: Hallen-TV (Kiosk) unter /tv und /dashboard
 app.get(['/tv', '/dashboard'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'tv.html')));
-app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+app.use(express.static(path.join(__dirname, 'public'), {
+  extensions: ['html'],
+  // v5.3: Service Worker immer frisch prüfen, Manifest mit passendem Typ (App auf dem Homescreen)
+  setHeaders(res, file) {
+    if (file.endsWith(`${path.sep}sw.js`)) res.setHeader('Cache-Control', 'no-cache');
+    if (file.endsWith(`${path.sep}manifest.json`)) res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+  }
+}));
 
 /* ---------------- REST-API ---------------- */
 app.use('/api', authenticate, guard);
+app.use('/api', require('./server/lib/activity').middleware);   // v5.3: Aktivitäts- und Audit-Log
 app.use('/api/auth', require('./server/routes/auth'));
 app.use('/api', require('./server/routes/core'));            // meta, bootstrap, layout, search
 app.use('/api/vehicles', require('./server/routes/vehicles'));
@@ -74,6 +84,7 @@ app.use('/api', require('./server/routes/fleet'));           // v3: Fahrzeugmode
 app.use('/api', require('./server/routes/tv'));              // v3: Hallen-TV / Dashboard
 app.use('/api', require('./server/routes/hub'));             // v4: Schnell-Verbrauch, kritische Ressourcen, Schwebe-Status
 app.use('/api', require('./server/routes/dimensions'));      // v4.1: KI-Serienmaße via Gemini
+app.use('/api', require('./server/routes/activity'));        // v5.3: Aktivitäts-Log (Klicks + Admin-Ansicht)
 // Platz für künftige Module, z. B.:
 // app.use('/api/cams', require('./server/routes/cams'));
 

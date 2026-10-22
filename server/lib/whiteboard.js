@@ -5,6 +5,7 @@
  * 2. Offene Aufgaben dieser Autos bekommen dessen Startdatum als Deadline.
  * 3. Sortierung: Deadline (früh zuerst) > Priorität > Alter der Aufgabe.
  * 4. Aufgaben ohne Event landen im Backlog.
+ *    v5.3: Ein eigenes Zieldatum (target_date) zählt wie eine Deadline; das frühere Datum gewinnt.
  * 5. Haben die Event-Autos keine offenen Tasks, schlägt das Board
  *    allgemeine Hallen-To-Dos vor (z. B. "Kompressor entwässern").
  */
@@ -29,18 +30,29 @@ function buildWhiteboard() {
   const nextEvent = new Map();
   for (const l of links) if (!nextEvent.has(l.vehicle_id)) nextEvent.set(l.vehicle_id, l);
 
-  const tasks = db.prepare(`SELECT t.*, v.name AS vehicle_name, v.color AS vehicle_color, v.model AS vehicle_model, v.status AS vehicle_status
-    FROM tasks t LEFT JOIN vehicles v ON v.id = t.vehicle_id WHERE t.status = 'open'`).all();
+  // v5.3: inkl. Zuweisung (assigned_user) und Pause ("Nicht fertig geworden")
+  const tasks = db.prepare(`SELECT t.*, v.name AS vehicle_name, v.color AS vehicle_color, v.model AS vehicle_model, v.status AS vehicle_status,
+      au.name AS assigned_name, au.color AS assigned_color, pu.name AS paused_by_name
+    FROM tasks t LEFT JOIN vehicles v ON v.id = t.vehicle_id
+    LEFT JOIN users au ON au.id = t.assigned_user LEFT JOIN users pu ON pu.id = t.paused_by
+    WHERE t.status = 'open'`).all();
 
   const urgent = [];
   const backlog = [];
   const hall = [];
   for (const task of tasks) {
-    if (!task.vehicle_id) { hall.push(task); continue; }
+    // v5.3: eigenes Zieldatum zählt wie eine Deadline (das frühere von Zieldatum und Event gewinnt)
+    const own = task.target_date ? { daysLeft: daysBetween(t, task.target_date), overdue: task.target_date < t } : null;
+    if (!task.vehicle_id) { hall.push(own ? { ...task, target_days: own.daysLeft, target_overdue: own.overdue } : task); continue; }
     const ev = nextEvent.get(task.vehicle_id);
-    if (ev) {
+    if (ev && !(task.target_date && task.target_date < ev.date_start)) {
       const daysLeft = Math.max(0, daysBetween(t, ev.date_start));
-      urgent.push({ ...task, event_id: ev.event_id, event_name: ev.event_name, deadline: ev.date_start, daysLeft, urgency: urgencyLevel(daysLeft) });
+      urgent.push({ ...task, event_id: ev.event_id, event_name: ev.event_name, deadline: ev.date_start, daysLeft, urgency: urgencyLevel(daysLeft),
+        target_days: own ? own.daysLeft : null, target_overdue: own ? own.overdue : false });
+    } else if (task.target_date) {
+      const daysLeft = Math.max(0, own.daysLeft);
+      urgent.push({ ...task, event_id: ev ? ev.event_id : null, event_name: ev ? ev.event_name : null, deadline: task.target_date, daysLeft,
+        urgency: own.overdue ? 'critical' : urgencyLevel(daysLeft), deadline_kind: 'target', target_days: own.daysLeft, target_overdue: own.overdue });
     } else {
       backlog.push({ ...task, urgency: 'none' });
     }

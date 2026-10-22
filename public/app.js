@@ -32,6 +32,11 @@
  *   v5:
  *   js/biz.js        Büro-/Enterprise-Ansicht (Alt+B / Esc), Profilmenü, ERP-Tabellen
  *   biz.css          Heller Business-Look, aktiv bei <html class="biz">
+ *   v5.3:
+ *   js/pwa.js        App auf dem Homescreen (Service Worker, Installieren)
+ *   js/track.js      Aktivitäts-Log (Klicks, Interaktionen)
+ *   js/workload.js   Team-Auslastung, Zuweisung, Zeitschätzung, "Arbeit pausieren"
+ *   js/admin-activity.js  Admin: Aktivitäts- & Audit-Log
  */
 import { store, app, subscribe, setState, emit, canEdit, isAdmin, statusInfo, vehicleById, objectById, setBpLayer, bpLayerOf,
   loadMeta, refreshMeta, refreshAll, refreshWhiteboard, refreshBlueprint, refreshVehicles } from './js/state.js';
@@ -54,6 +59,9 @@ import { renderTrailersPanel } from './js/trailers.js';
 import { initHud, refreshHud, openFloatDrawer } from './js/hud.js';
 import { openQuickUse } from './js/quickuse.js';
 import { initBiz, openProfileMenu, isBiz } from './js/biz.js';
+import { initPwa } from './js/pwa.js';                          // v5.3
+import { initTracking, track } from './js/track.js';            // v5.3
+import { openWorkload } from './js/workload.js';                // v5.3
 
 /* ======================= Rechte Seitenleiste ======================= */
 const PANELS = {
@@ -152,6 +160,7 @@ function renderLegend() {
 }
 
 function setMode(mode) {
+  if (mode !== 'hall' && pinResult) clearSearchPin();   // v5.3
   setState({ mode }, ['mode']);
   document.body.classList.toggle('mode-blueprint', mode === 'blueprint');
   $$('.mode-switch button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
@@ -216,6 +225,37 @@ function renderSelectionBar(v) {
     </div>`);
 }
 
+/* ======================= v5.3: Such-Pin auf der Karte ======================= */
+let pinResult = null;
+function renderPinBar() {
+  const bar = $('#pinBar');
+  if (!pinResult) { bar.classList.add('hidden'); setHTML(bar, ''); return; }
+  bar.classList.remove('hidden');
+  const p = pinResult.pin;
+  setHTML(bar, html`
+    <div class="pin-bar">
+      <span class="pin-ico">${icon('pin', 'w-4 h-4')}</span>
+      <div class="min-w-0 flex-1 leading-tight"><div class="text-sm font-semibold text-white truncate">Hier: ${p.label}</div><div class="text-[11px] text-pink-200/90 truncate">${p.sub || ''}</div></div>
+      <button class="btn btn-sm !px-2" data-pinact="zoom" title="Heranzoomen">${icon('zoomin', 'w-3.5 h-3.5')}</button>
+      ${pinResult.target ? html`<button class="btn btn-sm btn-primary" data-pinact="open">Öffnen</button>` : ''}
+      <button class="btn-icon !w-8 !h-8" data-pinact="close" title="Pin ausblenden">${icon('x', 'w-4 h-4')}</button>
+    </div>`);
+}
+function showSearchPin(r) {
+  if (!r || !r.pin || isBiz() || !app.map) return false;
+  if (window.innerWidth < 1024) setMobileView('map');
+  if (store.mode !== 'hall') setMode('hall');
+  if (store.builder) return false;
+  if (!app.map.showPin(r.pin)) return false;
+  pinResult = r;
+  renderPinBar();
+  haptic([8, 30, 8]);
+  return true;
+}
+function clearSearchPin() { pinResult = null; if (app.map) app.map.clearPin(); renderPinBar(); }
+app.showSearchPin = showSearchPin;
+app.clearSearchPin = clearSearchPin;
+
 /* ======================= Navigation (Spotlight etc.) ======================= */
 function navigate(target) {
   if (!target) return;
@@ -269,6 +309,7 @@ app.openShelf = openShelf;
 app.openTyreHub = openTyreHub;
 app.openFridge = openFridge;
 app.openQuickUse = openQuickUse;      // v4
+app.openWorkload = openWorkload;      // v5.3
 app.openFloatDrawer = openFloatDrawer; // v4
 app.refreshSupplies = refreshSupplies;
 app.refreshHud = refreshHud;
@@ -285,10 +326,12 @@ async function startApp() {
     started = true;
     app.map = new HallMap($('#mapCanvas'), {
       onHaptic: haptic,
-      onVehicleClick: (v) => app.map.focusVehicle(v.id, () => openCockpit(v.id)),
-      onVehicleSelect: renderSelectionBar,
+      onVehicleClick: (v) => { track(`Klickte auf Auto ${v.name} (Hallenkarte)`, 'map'); app.map.focusVehicle(v.id, () => openCockpit(v.id)); },
+      onVehicleSelect: (v) => { if (v) track(`Wählte Auto ${v.name} auf der Hallenkarte`, 'map'); renderSelectionBar(v); },
+      onPinClick: () => { haptic(8); app.map.zoomToPin(); },
       onMove: moveVehicle,
       onObjectClick: (o) => {
+        track(`Klickte auf ${o.label || o.code || o.type} (Hallenkarte)`, 'map');
         if (o.type === 'shelf') app.map.focusObject(o.id, () => openShelf(o.id));
         else if (o.type === 'tyrestack') navigate({ kind: 'tyres' });
         else if (o.type === 'fridge' || (o.type === 'zone' && o.code === 'CHILL')) navigate({ kind: 'fridge' });
@@ -309,6 +352,7 @@ async function startApp() {
     initSupplyAlert();
     initTicker($('#ledTicker'));
     initHud();   // v4
+    initTracking();   // v5.3: Aktivitäts-Log (Klicks)
     bindChrome();
     setInterval(poll, 20000);
   }
@@ -320,7 +364,10 @@ async function startApp() {
   const params = new URLSearchParams(location.search);
   if (params.get('auto')) navigate({ kind: 'vehicle', vehicleId: Number(params.get('auto')) });
   if (params.get('scan')) setTimeout(() => handleScanText(params.get('scan')), 400);
-  if (params.get('scan') || params.get('auto')) history.replaceState(null, '', location.pathname);
+  // v5.3: Kurzbefehle vom Homescreen-Icon (lange drücken): ?open=search / ?open=workload
+  if (params.get('open') === 'search') setTimeout(openSpotlight, 300);
+  if (params.get('open') === 'workload') setTimeout(openWorkload, 300);
+  if (params.get('scan') || params.get('auto') || params.get('open')) history.replaceState(null, '', location.pathname);
 }
 app.startApp = startApp;
 
@@ -347,6 +394,12 @@ function bindChrome() {
     const b = e.target.closest('[data-bpall]');
     if (!b || !store.meta) return;
     Object.keys(store.meta.blueprintLayers || {}).forEach((k) => setBpLayer(k, b.dataset.bpall === '1'));
+  });
+  on($('#pinBar'), 'click', '[data-pinact]', (_e, b) => {
+    const a = b.dataset.pinact;
+    if (a === 'zoom') app.map.zoomToPin();
+    if (a === 'close') clearSearchPin();
+    if (a === 'open' && pinResult) { const t = pinResult.target; app.map.zoomToPin(() => navigate(t)); }
   });
   $('#spotlightBtn').addEventListener('click', openSpotlight);
   $('#spotlightBtnMobile').addEventListener('click', openSpotlight);
@@ -382,7 +435,7 @@ subscribe('work', renderTicker);
 subscribe('biz', () => { renderUserChip(); renderTicker(); renderLegend(); if (store.me) app.rerenderTab(); });
 subscribe('vehicles', () => { if (activeTab === 'fleet') app.rerenderTab('fleet'); });
 subscribe('events', () => { if (activeTab === 'events') app.rerenderTab('events'); });
-subscribe('builder', () => { renderLegend(); renderMapTopBar(); });
+subscribe('builder', () => { renderLegend(); renderMapTopBar(); if (store.builder) clearSearchPin(); });
 subscribe('bplayers', renderLegend);                                          // v5.2
 subscribe('blueprint', () => { if (store.mode === 'blueprint') renderLegend(); });
 // v4: Werkzeug-/Lager-Liste neu zeichnen, wenn sich der Schwebe-Status ändert
@@ -404,6 +457,7 @@ window.addEventListener('auth:required', () => { if (store.me) { setState({ me: 
     return;
   }
   initBiz();   // v5: Ansicht + Tastenkürzel schon auf dem Anmeldebildschirm
+  initPwa();   // v5.3: Service Worker, "Als App installieren"
   initAuth(startApp);
 })();
 
