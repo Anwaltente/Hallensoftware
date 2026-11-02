@@ -105,7 +105,8 @@ router.get('/tv/data', async (req, res, next) => {
     const hall = getSetting('hall', { name: 'Halle' });
     const wb = buildWhiteboard();
     const vehicles = db.prepare(`SELECT v.id, v.name, v.model, v.color, v.status, v.slot_id, v.slot_pos, v.extern_location,
-        (SELECT COUNT(*) FROM tasks t WHERE t.vehicle_id = v.id AND t.status = 'open') AS open_tasks
+        (SELECT COUNT(*) FROM tasks t WHERE t.vehicle_id = v.id AND t.status = 'open') AS open_tasks,
+        (SELECT COUNT(*) FROM tasks t WHERE t.vehicle_id = v.id AND t.status = 'open' AND t.event_critical != 0) AS critical_tasks
       FROM vehicles v ORDER BY v.name`).all();
     const slots = db.prepare("SELECT id, code, label, props, x, y, w, h FROM layout_objects WHERE type = 'slot' ORDER BY y, x").all()
       .map((s) => {
@@ -124,6 +125,10 @@ router.get('/tv/data', async (req, res, next) => {
         id: ev.id, name: ev.name, date_start: ev.date_start, date_end: ev.date_end, start_time: ev.start_time, location: ev.location,
         vehicles: vehicles.filter((v) => db.prepare('SELECT 1 FROM event_vehicles WHERE event_id = ? AND vehicle_id = ?').get(ev.id, v.id)),
         packlist: { total: pl.stats.total, packed: pl.stats.packed, pct: pl.stats.total ? Math.round((pl.stats.packed / pl.stats.total) * 100) : 0 },
+        tasks: (() => {   // v5.4: Event-Aufgaben (Pavillon, Grill, Anhänger ...) in der Fertigstellungsquote
+          const r = db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(status = 'done'), 0) AS done FROM tasks WHERE event_id = ?").get(ev.id);
+          return { ...r, pct: r.total ? Math.round((r.done / r.total) * 100) : 0 };
+        })(),
         loading: lp && lp.trailers.length ? { summary: lp.summary, rows: lp.rows.map((r) => ({ car: r.car.name, trailer: r.trailer_id ? (lp.trailers.find((x) => x.id === r.trailer_id) || {}).name : null, status: r.eval ? r.eval.status : null, issue: r.eval && r.eval.issues.find((i) => i.level !== 'info') ? r.eval.issues.find((i) => i.level !== 'info').text : null })) } : null
       };
     }
@@ -144,6 +149,7 @@ router.get('/tv/data', async (req, res, next) => {
       hall: { name: hall.name },
       work: activeWork(),
       tasks: { urgent: wb.urgent.slice(0, 8), hall: wb.hall.slice(0, 6), backlog: wb.backlog.length },
+      liftsNow: wb.liftsNow,   // v5.4
       vehicles,
       slots,
       freePlaces,

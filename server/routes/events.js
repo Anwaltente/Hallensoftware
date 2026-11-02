@@ -6,6 +6,7 @@ const { db } = require('../db');
 const { buildPacklist } = require('../lib/packlist');
 const { listEvents } = require('../lib/queries');
 const { insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, nowIso } = require('../lib/util');
+const budget = require('../lib/budget');
 
 const router = express.Router();
 
@@ -59,7 +60,12 @@ router.put('/:id', (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+  db.transaction(() => {
+    // v5.4: Event-Aufgaben hängen am Event (ohne Fremdschlüssel), also mit löschen
+    for (const t of db.prepare('SELECT id FROM tasks WHERE event_id = ?').all(Number(req.params.id))) budget.taskDeleted(t.id);
+    db.prepare('DELETE FROM tasks WHERE event_id = ?').run(Number(req.params.id));
+    db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+  })();
   res.json({ ok: true });
 });
 

@@ -489,6 +489,17 @@ ensureColumn('tasks', 'paused_at', 'TEXT');            // gesetzt = Arbeit unter
 ensureColumn('tasks', 'paused_by', 'INTEGER');
 // v5.3: verwendete Teile / Flüssigkeiten je Wartungsheft-Eintrag (für den PDF-Export)
 ensureColumn('maintenance_log', 'parts_used', 'TEXT');
+// v5.4: Unteraufgaben, Event-Relevanz, Hallen-Kategorien/Wiederholung, Event-Aufgaben, Hebebühnen-Reservierung, Fahrzeugtyp
+ensureColumn('tasks', 'subtasks', 'TEXT');                               // JSON [{ t: 'Text', done: false }]
+ensureColumn('tasks', 'auto_done', 'INTEGER NOT NULL DEFAULT 0');       // 1 = erledigt sich, sobald alle Unteraufgaben abgehakt sind
+ensureColumn('tasks', 'event_critical', 'INTEGER NOT NULL DEFAULT 1');  // 0 = blockiert die Event-Abfahrt nicht
+ensureColumn('tasks', 'event_id', 'INTEGER');                           // fahrzeugübergreifende Event-Aufgabe
+ensureColumn('tasks', 'category', 'TEXT');                              // Hallen-Kategorie (kompressor, elektrik ...)
+ensureColumn('tasks', 'repeat_days', 'INTEGER');                        // Hallen-Wiederholung: nach dem Erledigen neu in X Tagen
+ensureColumn('tasks', 'lift_slot', 'INTEGER');                          // layout_objects.id der Bühne, 0 = egal, NULL = keine
+ensureColumn('tasks', 'lift_from', 'TEXT');                             // JJJJ-MM-TTTHH:MM (Hallen-Zeitzone)
+ensureColumn('tasks', 'lift_to', 'TEXT');
+ensureColumn('vehicles', 'vtype', 'TEXT');                              // drift | street | trailer | project (leer = drift, wie bisher)
 
 /* ---------- v3: neue Tabellen (nur CREATE TABLE IF NOT EXISTS) ---------- */
 db.exec(`

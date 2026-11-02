@@ -12,6 +12,7 @@ const { pick, insertRow, updateRow, mustGet, httpError, strOrNull, toIntOrNull, 
 const budget = require('../lib/budget');   // v5.1: Kosten automatisch im Budget
 const activity = require('../lib/activity');   // v5.3: Meilensteine im Aktivitäts-Log
 const { today } = require('../lib/util');
+const lifts = require('../lib/lifts');   // v5.4: Hebebühnen-Reservierung
 
 const router = express.Router();
 
@@ -38,8 +39,49 @@ const taskSchema = {
   cost: (v) => budget.money(toNumOrNull(v)),   // v5.1: Preis der Aufgabe (leer = keiner)
   estimated_hours: hoursOrNull,                // v5.3
   assigned_user: userOrNull,                   // v5.3: leer = offener Pool
-  target_date: dateOrNull                      // v5.3
+  target_date: dateOrNull,                     // v5.3
+  // v5.4
+  subtasks: subtasksJson,
+  auto_done: (v) => (v ? 1 : 0),
+  event_critical: (v) => (v === undefined || v === null || v === '' || v === true || v === 1 || v === '1' || v === 'on' || v === 'true' ? 1 : 0),
+  event_id: toIntOrNull,
+  category: (v) => (HALL_CATEGORIES.includes(v) ? v : null),
+  repeat_days: (v) => { const n = toIntOrNull(v); return n && n > 0 ? Math.min(366, n) : null; },
+  lift_slot: liftOrNull,
+  lift_from: dtOrNull,
+  lift_to: dtOrNull
 };
+
+/* v5.4: Hallen-Kategorien, Unteraufgaben, Hebebühnen-Zeitfenster */
+const HALL_CATEGORIES = ['kompressor', 'elektrik', 'buehne', 'ordnung', 'allgemein'];
+function dtOrNull(v) { return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(v || '').trim()) ? String(v).trim() : null; }
+function subtasksJson(v) {
+  const list = Array.isArray(v) ? v : [];
+  const clean = list.map((x) => ({ t: String((x && x.t) || '').trim().slice(0, 200), done: !!(x && x.done) })).filter((x) => x.t).slice(0, 50);
+  return clean.length ? JSON.stringify(clean) : null;
+}
+function liftOrNull(v) {
+  const id = toIntOrNull(v);
+  if (id === null) return null;
+  if (id === 0) return 0;   // egal / beliebige Bühne
+  if (!lifts.listLifts().some((l) => l.id === id)) throw httpError(400, 'Diese Hebebühne gibt es nicht.');
+  return id;
+}
+/** Bühne gewählt = Zeitfenster Pflicht; keine Bühne = Zeitfenster leeren */
+function checkLift(taskId, patch) {
+  const cur = taskId ? mustGet('tasks', taskId, 'Aufgabe') : {};
+  const slot = patch.lift_slot !== undefined ? patch.lift_slot : cur.lift_slot;
+  if (slot === null || slot === undefined) {
+    if (patch.lift_slot !== undefined || patch.lift_from !== undefined) { patch.lift_from = null; patch.lift_to = null; }
+    return;
+  }
+  const from = patch.lift_from !== undefined ? patch.lift_from : cur.lift_from;
+  const to = patch.lift_to !== undefined ? patch.lift_to : cur.lift_to;
+  if (!from || !to) throw httpError(400, 'Für die Hebebühne bitte Datum, Startzeit und Dauer angeben.');
+  if (to <= from) throw httpError(400, 'Das Ende der Bühnen-Reservierung muss nach dem Start liegen.');
+}
+/** Antwort mit Konflikt-Hinweis für die Bühne */
+const withLift = (row) => ({ ...row, lift_conflict: row.lift_slot !== null && row.lift_slot !== undefined ? lifts.hasConflict(row.id) : false });
 
 /** v5.3: Aufgaben-Abfrage inkl. Zuweisung und Pause (für Board, Cockpit, Workload) */
 const TASK_SELECT = `SELECT t.*, v.name AS vehicle_name, v.color AS vehicle_color,
@@ -52,6 +94,7 @@ router.get('/tasks', (req, res) => {
   const args = [];
   if (req.query.vehicleId === 'hall') where.push('t.vehicle_id IS NULL');
   else if (req.query.vehicleId) { where.push('t.vehicle_id = ?'); args.push(Number(req.query.vehicleId)); }
+  if (req.query.eventId) { where.push('t.event_id = ?'); args.push(Number(req.query.eventId)); }   // v5.4
   if (req.query.status) { where.push('t.status = ?'); args.push(req.query.status); }
   res.json(db.prepare(`${TASK_SELECT}
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY t.status, t.priority, t.created_at`).all(...args));
@@ -60,18 +103,22 @@ router.get('/tasks', (req, res) => {
 router.post('/tasks', (req, res) => {
   let id;
   db.transaction(() => {
-    id = insertRow('tasks', { ...pick(req.body, taskSchema), created_by: req.user.id, created_at: nowIso() });
+    const row = pick(req.body, taskSchema);
+    checkLift(null, row);
+    id = insertRow('tasks', { ...row, created_by: req.user.id, created_at: nowIso() });
     budget.syncTask(id);
   })();
-  res.status(201).json(mustGet('tasks', id));
+  res.status(201).json(withLift(mustGet('tasks', id)));
 });
 
 router.put('/tasks/:id', (req, res) => {
   db.transaction(() => {
-    updateRow('tasks', req.params.id, pick(req.body, taskSchema, { partial: true }));
+    const patch = pick(req.body, taskSchema, { partial: true });
+    checkLift(req.params.id, patch);
+    updateRow('tasks', req.params.id, patch);
     budget.syncTask(Number(req.params.id));
   })();
-  res.json(mustGet('tasks', req.params.id));
+  res.json(withLift(mustGet('tasks', req.params.id)));
 });
 
 router.delete('/tasks/:id', (req, res) => {
@@ -86,6 +133,25 @@ router.delete('/tasks/:id', (req, res) => {
 router.post('/tasks/:id/done', (req, res) => {
   const task = mustGet('tasks', req.params.id, 'Aufgabe');
   if (task.status === 'done') throw httpError(409, 'Aufgabe ist bereits erledigt.');
+  completeTask(req, task);
+  res.json(mustGet('tasks', task.id));
+});
+
+/** v5.4: Unteraufgabe abhaken; mit auto_done erledigt sich die Hauptaufgabe, sobald alles abgehakt ist */
+router.post('/tasks/:id/subtasks/:i', (req, res) => {
+  const task = mustGet('tasks', req.params.id, 'Aufgabe');
+  const list = JSON.parse(task.subtasks || '[]');
+  const i = Number(req.params.i);
+  if (!list[i]) throw httpError(404, 'Unteraufgabe nicht gefunden.');
+  list[i].done = req.body && req.body.done !== undefined ? !!req.body.done : !list[i].done;
+  db.prepare('UPDATE tasks SET subtasks = ? WHERE id = ?').run(JSON.stringify(list), task.id);
+  const allDone = list.every((x) => x.done);
+  let autoCompleted = false;
+  if (allDone && task.auto_done && task.status === 'open') { completeTask(req, { ...task, subtasks: JSON.stringify(list) }); autoCompleted = true; }
+  res.json({ ...mustGet('tasks', task.id), all_done: allDone, auto_completed: autoCompleted });
+});
+
+function completeTask(req, task) {
   const ts = nowIso();
   // v5.1: Kosten = beim Abhaken angegeben, sonst der Preis der Aufgabe
   const cost = budget.money(toNumOrNull(req.body && req.body.cost)) || budget.money(task.cost);
@@ -105,11 +171,29 @@ router.post('/tasks/:id/done', (req, res) => {
     }
     budget.taskDone(task, logId, cost, ts);
     db.prepare('UPDATE work_sessions SET ended_at = ? WHERE task_id = ? AND ended_at IS NULL').run(ts, task.id);
+    // v5.4: wiederkehrende Hallen-Aufgabe: nächste Runde mit neuem Fälligkeitsdatum, Unteraufgaben wieder offen
+    if (task.repeat_days) {
+      const next = new Date(`${today()}T12:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + task.repeat_days);
+      const subs = JSON.parse(task.subtasks || '[]').map((x) => ({ ...x, done: false }));
+      insertRow('tasks', {
+        vehicle_id: task.vehicle_id, event_id: task.event_id, title: task.title, description: task.description, priority: task.priority,
+        estimated_hours: task.estimated_hours, assigned_user: task.assigned_user, category: task.category, repeat_days: task.repeat_days,
+        subtasks: subs.length ? JSON.stringify(subs) : null, auto_done: task.auto_done, event_critical: task.event_critical,
+        target_date: next.toISOString().slice(0, 10), created_by: req.user.id, created_at: ts
+      });
+    }
   });
   tx();
   const vname = task.vehicle_id ? (db.prepare('SELECT name FROM vehicles WHERE id = ?').get(task.vehicle_id) || {}).name : null;
-  activity.mark(req, 'task_done', `Aufgabe erledigt: ${task.title}${vname ? ` (${vname})` : ' (Halle)'}`, { task_id: task.id, vehicle_id: task.vehicle_id, cost: cost || null });
-  res.json(mustGet('tasks', task.id));
+  activity.mark(req, 'task_done', `Aufgabe erledigt: ${task.title}${vname ? ` (${vname})` : task.event_id ? ' (Event)' : ' (Halle)'}`, { task_id: task.id, vehicle_id: task.vehicle_id, cost: cost || null });
+}
+
+/** v5.4: Hebebühnen-Kalender: Reservierungen von/bis (JJJJ-MM-TT) mit Konflikten */
+router.get('/lift-calendar', (req, res) => {
+  const from = dateOrNull(req.query.from) || today();
+  const to = dateOrNull(req.query.to) || from;
+  res.json(lifts.liftCalendar(from, to < from ? from : to));
 });
 
 /**

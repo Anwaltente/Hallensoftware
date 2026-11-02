@@ -33,7 +33,10 @@ export function taskMetaChips(t, { showAssignee = true } = {}) {
       ? html`<span class="chip !text-[10px] task-who" title="Zuständig: ${t.assigned_name}"><span class="w-3.5 h-3.5 rounded-full grid place-items-center text-[7px] font-bold text-black" style="background:${t.assigned_color || '#94a3b8'}">${initials(t.assigned_name)}</span>${t.assigned_name}</span>`
       : html`<span class="chip !text-[10px] task-pool" title="Noch niemandem zugewiesen">${icon('users', 'w-3 h-3')} offen für alle</span>`) : ''}
     ${t.estimated_hours ? html`<span class="chip !text-[10px] task-hours">${icon('clock', 'w-3 h-3')} ca. ${fmtHours(t.estimated_hours)}</span>` : ''}
-    ${t.target_date ? html`<span class="chip !text-[10px] ${n < 0 ? 'task-late' : n <= 2 ? 'task-soon' : 'task-date'}" title="Zieldatum ${fmtDate(t.target_date)}">${icon('calendar', 'w-3 h-3')} ${dueLabel(t.target_date)}</span>` : ''}`;
+    ${t.target_date ? html`<span class="chip !text-[10px] ${n < 0 ? 'task-late' : n <= 2 ? 'task-soon' : 'task-date'}" title="Zieldatum ${fmtDate(t.target_date)}">${icon('calendar', 'w-3 h-3')} ${dueLabel(t.target_date)}</span>` : ''}
+    ${t.lift_slot !== null && t.lift_slot !== undefined && t.lift_from ? html`<span class="chip !text-[10px] !text-cyan-200 !border-cyan-400/40" title="Hebebühne reserviert">${icon('layers', 'w-3 h-3')} ${liftName(t.lift_slot)} · ${fmtDate(t.lift_from.slice(0, 10), { short: true })} ${t.lift_from.slice(11)}–${t.lift_to.slice(11)}</span>` : ''}
+    ${t.repeat_days ? html`<span class="chip !text-[10px]" title="Wiederkehrend">${icon('refresh', 'w-3 h-3')} ${REPEATS[t.repeat_days] || `alle ${t.repeat_days} Tage`}</span>` : ''}
+    ${t.vehicle_id && t.event_critical === 0 ? html`<span class="chip !text-[10px] !text-slate-400" title="Blockiert die Event-Abfahrt nicht">nicht event-kritisch</span>` : ''}`;
 }
 
 /** Hinweis-Box "Nicht fertig geworden" */
@@ -86,43 +89,141 @@ export function openPauseDialog(task, onDone) {
 }
 
 /* ====================================================================== */
-/* Planung (Zuständig, Stunden, Zieldatum)                                */
+/* Aufgabe anlegen / planen (v5.4: alle Felder)                           */
 /* ====================================================================== */
-export function openTaskPlan(task, onDone) {
+export const HALL_CATEGORIES = { kompressor: 'Kompressor & Druckluft', elektrik: 'Elektrik & Beleuchtung', buehne: 'Hebebühnen-Prüfung/Wartung', ordnung: 'Ordnung & Entsorgung', allgemein: 'Allgemeines' };
+export const REPEATS = { 7: 'jede Woche', 14: 'alle 2 Wochen', 28: 'alle 4 Wochen', 30: 'jeden Monat', 91: 'jedes Quartal', 182: 'halbjährlich', 365: 'jährlich' };
+export const liftList = () => store.objects.filter((o) => o.type === 'slot' && o.props && o.props.kind === 'lift');
+export const liftName = (id) => (Number(id) === 0 ? 'Bühne egal' : (liftList().find((l) => l.id === Number(id)) || {}).label || 'Bühne');
+const pad = (n) => String(n).padStart(2, '0');
+const localDt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+export const subtasksOf = (t) => { try { return JSON.parse(t.subtasks || '[]') || []; } catch { return []; } };
+
+/**
+ * Editor für jede Aufgabe (Auto, Halle, Event). task.id fehlt = neu anlegen.
+ * opts.pickVehicle: Fahrzeug wählbar (z. B. Reservierung aus dem Kalender)
+ */
+export function openTaskPlan(task, onDone, { pickVehicle = false } = {}) {
   const people = (store.users || []).filter((u) => u.role !== 'gast');
+  const isNew = !task.id;
+  const kind = () => (task.event_id ? 'event' : task.vehicle_id ? 'vehicle' : 'hall');
+  const subs = subtasksOf(task);
+  const lifts = liftList();
+  const from = task.lift_from ? new Date(task.lift_from) : null;
+  const dur = task.lift_from && task.lift_to ? (new Date(task.lift_to) - new Date(task.lift_from)) / 3600000 : (task.estimated_hours || 2);
   const body = el(html`<div>
     <form class="space-y-3" data-form>
-      <div class="text-sm text-slate-300"><b class="text-white">${task.title}</b>${task.vehicle_name ? html` · <span class="text-cyan-300">${task.vehicle_name}</span>` : ''}</div>
+      <label class="block"><span class="label">Aufgabe</span><input class="input" name="title" required value="${task.title || ''}" placeholder="z. B. Winterräder montieren"></label>
+      ${task.vehicle_name && !pickVehicle ? html`<div class="text-xs text-cyan-300 -mt-1">${task.vehicle_name}</div>` : ''}
+      ${pickVehicle ? html`<label class="block"><span class="label">Fahrzeug</span><select class="select" name="vehicle_id">
+        <option value="">Halle (kein Auto)</option>${store.vehicles.map((v) => html`<option value="${v.id}" ${task.vehicle_id === v.id ? 'selected' : ''}>${v.name}</option>`)}</select></label>` : ''}
+      <label class="block"><span class="label">Details</span><input class="input text-sm" name="description" value="${task.description || ''}" placeholder="optional"></label>
       <div><span class="label">Zuständig</span>
         <div class="flex flex-wrap gap-1.5" data-who>
           <button type="button" class="chip chip-btn ${!task.assigned_user ? 'on' : ''}" data-uid="">${icon('users', 'w-3 h-3')} Offener Pool</button>
           ${people.map((u) => html`<button type="button" class="chip chip-btn ${task.assigned_user === u.id ? 'on' : ''}" data-uid="${u.id}"><span class="w-3.5 h-3.5 rounded-full" style="background:${u.color}"></span>${u.name}</button>`)}
         </div></div>
-      <div class="grid grid-cols-2 gap-3">
-        <label><span class="label">Geschätzter Aufwand (Std.)</span><input class="input" type="number" step="0.25" min="0" inputmode="decimal" name="estimated_hours" value="${task.estimated_hours ?? ''}" placeholder="z. B. 2,5"></label>
-        <label><span class="label">Zieldatum</span><input class="input" type="date" name="target_date" value="${task.target_date || ''}"></label>
+      <div class="grid grid-cols-3 gap-3">
+        <label><span class="label">Priorität</span><select class="select" name="priority">${[[1, 'Hoch'], [2, 'Normal'], [3, 'Niedrig']].map(([v, l]) => html`<option value="${v}" ${(task.priority || 2) === v ? 'selected' : ''}>${l}</option>`)}</select></label>
+        <label><span class="label">Aufwand (Std.)</span><input class="input" type="number" step="0.25" min="0" inputmode="decimal" name="estimated_hours" value="${task.estimated_hours ?? ''}" placeholder="2,5"></label>
+        <label><span class="label">${kind() === 'hall' ? 'Fällig am' : 'Zieldatum'}</span><input class="input" type="date" name="target_date" value="${task.target_date || ''}"></label>
       </div>
       <div class="flex flex-wrap gap-1.5">${[[0.5, '30 min'], [1, '1 Std.'], [2, '2 Std.'], [4, 'halber Tag'], [8, 'ganzer Tag']].map(([h, l]) => html`<button type="button" class="chip chip-btn" data-h="${h}">${l}</button>`)}</div>
+      ${kind() === 'vehicle' || pickVehicle ? html`<label class="flex items-start gap-2 text-sm text-slate-300" data-critwrap>
+        <input type="checkbox" class="check !w-4 !h-4 mt-0.5" name="event_critical" ${task.event_critical === 0 ? '' : 'checked'}>
+        <span>Event-kritisch / vor Abfahrt zwingend erforderlich<br><small class="text-slate-500">Ohne Haken blockiert die Aufgabe die Event-Freigabe nicht (z. B. Kratzer lackieren).</small></span></label>` : ''}
+      ${kind() === 'hall' && !pickVehicle ? html`<div class="grid grid-cols-2 gap-3">
+        <label><span class="label">Kategorie</span><select class="select" name="category">${Object.entries(HALL_CATEGORIES).map(([k, l]) => html`<option value="${k}" ${(task.category || 'allgemein') === k ? 'selected' : ''}>${l}</option>`)}</select></label>
+        <label><span class="label">Wiederholen</span><select class="select" name="repeat_days"><option value="">einmalig</option>${Object.entries(REPEATS).map(([d, l]) => html`<option value="${d}" ${Number(task.repeat_days) === Number(d) ? 'selected' : ''}>${l}</option>`)}</select></label>
+      </div>` : ''}
+      ${lifts.length ? html`<div class="card p-3 space-y-2">
+        <label class="flex items-center gap-2 text-sm text-white"><input type="checkbox" class="check !w-4 !h-4" name="lift_on" ${task.lift_slot !== null && task.lift_slot !== undefined ? 'checked' : ''}> ${icon('layers', 'w-3.5 h-3.5 text-cyan-300')} Benötigt Hebebühne</label>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" data-liftfields>
+          <label class="col-span-2 sm:col-span-1"><span class="label">Bühne</span><select class="select" name="lift_slot">${lifts.map((l) => html`<option value="${l.id}" ${task.lift_slot === l.id ? 'selected' : ''}>${l.label || l.code}</option>`)}<option value="0" ${task.lift_slot === 0 ? 'selected' : ''}>Egal / beliebig</option></select></label>
+          <label><span class="label">Datum</span><input class="input" type="date" name="lift_date" value="${from ? localDt(from).slice(0, 10) : todayIso()}"></label>
+          <label><span class="label">Start</span><input class="input" type="time" name="lift_time" value="${from ? localDt(from).slice(11) : '09:00'}" step="900"></label>
+          <label><span class="label">Dauer (Std.)</span><input class="input" type="number" step="0.25" min="0.25" inputmode="decimal" name="lift_hours" value="${Math.round(dur * 100) / 100}"></label>
+        </div></div>` : ''}
+      <label class="block"><span class="label">Unteraufgaben (eine pro Zeile)</span>
+        <textarea class="input text-sm" name="subtasks" rows="${Math.min(8, Math.max(3, subs.length + 1))}" placeholder="Räder aus Regal holen&#10;Neu wuchten&#10;Montieren &amp; Drehmoment 120 Nm prüfen">${subs.map((s) => s.t).join('\n')}</textarea></label>
+      <label class="flex items-center gap-2 text-xs text-slate-400"><input type="checkbox" class="check !w-4 !h-4" name="auto_done" ${task.auto_done ? 'checked' : ''}> Hauptaufgabe automatisch erledigen, wenn alle Unteraufgaben abgehakt sind</label>
     </form></div>`);
   let uid = task.assigned_user || '';
   const m = openModal({
-    title: 'Aufgabe planen', subtitle: 'Wer macht es, wie lange dauert es, bis wann?', size: 'sm', iconName: 'users', body,
-    footer: html`<button class="btn" data-close>Abbrechen</button><button class="btn btn-primary" data-save>${icon('check')} Speichern</button>`
+    title: isNew ? 'Neue Aufgabe' : 'Aufgabe planen', subtitle: 'Wer, wie lange, bis wann, Bühne, Unteraufgaben', size: 'md', iconName: 'list', body,
+    footer: html`<button class="btn" data-close>Abbrechen</button><button class="btn btn-primary" data-save>${icon('check')} ${isNew ? 'Anlegen' : 'Speichern'}</button>`
   });
   const f = body.querySelector('[data-form]');
+  const liftToggle = () => { const box = body.querySelector('[data-liftfields]'); if (box) box.classList.toggle('hidden', !f.lift_on.checked); };
+  liftToggle();
+  if (f.lift_on) f.lift_on.addEventListener('change', liftToggle);
   on(body, 'click', '[data-uid]', (_e, b) => { uid = b.dataset.uid; body.querySelectorAll('[data-uid]').forEach((x) => x.classList.toggle('on', x === b)); });
   on(body, 'click', '[data-h]', (_e, b) => { f.estimated_hours.value = b.dataset.h; });
-  m.footer.querySelector('[data-save]').addEventListener('click', async () => {
+  if (isNew) setTimeout(() => f.title.focus(), 60);
+  const save = async () => {
+    if (!f.reportValidity()) return;
     const d = formData(f);
+    const num = (v) => (v === '' || v === undefined ? null : String(v).replace(',', '.'));
+    // Erledigt-Status bleibt erhalten, solange der Text gleich ist
+    const lines = String(d.subtasks || '').split('\n').map((s) => s.trim()).filter(Boolean);
+    const payload = {
+      title: d.title, description: d.description || null, priority: Number(d.priority) || 2,
+      assigned_user: uid ? Number(uid) : null, estimated_hours: num(d.estimated_hours), target_date: d.target_date || null,
+      subtasks: lines.map((t) => ({ t, done: !!(subs.find((s) => s.t === t) || {}).done })), auto_done: !!f.auto_done.checked
+    };
+    if (f.event_critical) payload.event_critical = f.event_critical.checked;
+    if (f.category) { payload.category = d.category; payload.repeat_days = d.repeat_days || null; }
+    if (pickVehicle) payload.vehicle_id = d.vehicle_id ? Number(d.vehicle_id) : null;
+    if (f.lift_on && f.lift_on.checked) {
+      const start = new Date(`${d.lift_date}T${d.lift_time || '09:00'}`);
+      const hours = Number(num(d.lift_hours)) || 1;
+      if (Number.isNaN(start.getTime())) { toast('Bitte Datum und Startzeit für die Bühne angeben.', 'warn'); return; }
+      Object.assign(payload, { lift_slot: Number(d.lift_slot), lift_from: localDt(start), lift_to: localDt(new Date(start.getTime() + hours * 3600000)) });
+    } else payload.lift_slot = null;
     try {
-      await put(`/tasks/${task.id}`, { assigned_user: uid ? Number(uid) : null, estimated_hours: d.estimated_hours === '' ? null : String(d.estimated_hours).replace(',', '.'), target_date: d.target_date || null });
+      const res = isNew ? await post('/tasks', { ...payload, vehicle_id: payload.vehicle_id !== undefined ? payload.vehicle_id : task.vehicle_id || null, event_id: task.event_id || null })
+        : await put(`/tasks/${task.id}`, payload);
       m.close();
-      toast('Planung gespeichert.', 'ok');
+      if (res.lift_conflict) toast(`Bühnen-Konflikt! ${liftName(res.lift_slot)} ist zu der Zeit schon belegt. Siehe Kalender.`, 'warn', 6000);
+      else toast(isNew ? 'Aufgabe angelegt.' : 'Gespeichert.', 'ok');
       refreshWhiteboard().catch(() => {});
-      if (onDone) onDone();
+      if (onDone) onDone(res);
     } catch (err) { toastError(err); }
-  });
+  };
+  m.footer.querySelector('[data-save]').addEventListener('click', save);
+  f.addEventListener('submit', (e) => { e.preventDefault(); save(); });
 }
+
+/* ====================================================================== */
+/* v5.4: Unteraufgaben + "Nur meine Aufgaben"                             */
+/* ====================================================================== */
+/** Fortschritt + Checkliste unter einer Aufgabe; Klick auf [data-sub="taskId:index"] → toggleSubtask */
+export function subtaskBlock(t) {
+  const subs = subtasksOf(t);
+  if (!subs.length) return '';
+  const done = subs.filter((s) => s.done).length;
+  return html`<div class="mt-1.5">
+    <div class="flex items-center gap-2 text-[11px] text-slate-400"><div class="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden"><div class="h-full bg-lime-400" style="width:${Math.round((done / subs.length) * 100)}%"></div></div>${done}/${subs.length} erledigt${t.auto_done ? html` <span title="Erledigt sich automatisch">⚡</span>` : ''}</div>
+    <div class="mt-1 space-y-0.5">${subs.map((s, i) => html`<button type="button" class="flex items-center gap-2 text-left text-[13px] w-full hover:text-white ${s.done ? 'text-slate-500 line-through' : 'text-slate-300'}" data-sub="${t.id}:${i}" ${canEdit() ? '' : 'disabled'}>
+      <span class="w-3.5 h-3.5 rounded border ${s.done ? 'bg-lime-400 border-lime-400' : 'border-slate-500'} shrink-0"></span>${s.t}</button>`)}</div></div>`;
+}
+
+export async function toggleSubtask(ref, onDone) {
+  const [id, i] = String(ref).split(':');
+  try {
+    const r = await post(`/tasks/${id}/subtasks/${i}`);
+    haptic(8);
+    if (r.auto_completed) toast(`Alle Unteraufgaben erledigt: „${r.title}“ ist automatisch abgeschlossen.`, 'ok', 4000);
+    else if (r.all_done && r.status === 'open') toast('Alle Unteraufgaben erledigt. Hauptaufgabe jetzt abhaken?', 'ok', 4000);
+    refreshWhiteboard().catch(() => {});
+    if (onDone) await onDone(r);
+  } catch (err) { toastError(err); }
+}
+
+export const onlyMine = () => { try { return localStorage.getItem('halle.onlyMine') === '1'; } catch { return false; } };
+export function setOnlyMine(on) { try { localStorage.setItem('halle.onlyMine', on ? '1' : '0'); } catch { /* privates Fenster */ } }
+export const mineFilter = (list) => (onlyMine() && store.me ? list.filter((t) => t.assigned_user === store.me.id) : list);
+export const onlyMineToggle = () => html`<label class="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer select-none"><input type="checkbox" class="check !w-3.5 !h-3.5" data-onlymine ${onlyMine() ? 'checked' : ''}> Nur meine</label>`;
 
 /* ====================================================================== */
 /* Workload-Board                                                         */

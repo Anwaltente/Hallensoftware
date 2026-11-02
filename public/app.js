@@ -37,6 +37,9 @@
  *   js/track.js      Aktivitäts-Log (Klicks, Interaktionen)
  *   js/workload.js   Team-Auslastung, Zuweisung, Zeitschätzung, "Arbeit pausieren"
  *   js/admin-activity.js  Admin: Aktivitäts- & Audit-Log
+ *   v5.4:
+ *   js/calendar.js   Kalender / Bühnen-Belegung (Hebebühnen-Reservierung, Konflikte)
+ *   js/hallboard.js  Hallen-Wartung & Infrastruktur (Kategorien, Wiederholung)
  */
 import { store, app, subscribe, setState, emit, canEdit, isAdmin, statusInfo, vehicleById, objectById, setBpLayer, bpLayerOf,
   loadMeta, refreshMeta, refreshAll, refreshWhiteboard, refreshBlueprint, refreshVehicles } from './js/state.js';
@@ -45,7 +48,7 @@ import { $, $$, html, setHTML, icon, toast, toastError, haptic, chooseDialog, co
 import { HallMap } from './js/map.js';
 import { initAuth, showLogin, checkQuickChecks, logout } from './js/auth.js';
 import { initWhiteboard } from './js/whiteboard.js';
-import { openCockpit, renderFleetPanel } from './js/cockpit.js';
+import { openCockpit, renderFleetPanel, isDriftCar } from './js/cockpit.js';
 import { renderEventsPanel, openPacklist } from './js/events.js';
 import { renderLagerPanel, renderToolsPanel, openShelf } from './js/storage.js';
 import { initAdmin, openAdminConsole, renderMapTopBar } from './js/admin.js';
@@ -62,6 +65,8 @@ import { initBiz, openProfileMenu, isBiz } from './js/biz.js';
 import { initPwa } from './js/pwa.js';                          // v5.3
 import { initTracking, track } from './js/track.js';            // v5.3
 import { openWorkload } from './js/workload.js';                // v5.3
+import { renderHallPanel } from './js/hallboard.js';            // v5.4: Hallen-Wartung & Infrastruktur
+import { renderCalendarPanel } from './js/calendar.js';         // v5.4: Kalender / Bühnen-Belegung
 
 /* ======================= Rechte Seitenleiste ======================= */
 const PANELS = {
@@ -69,7 +74,9 @@ const PANELS = {
   lager: renderLagerPanel,
   tools: renderToolsPanel,
   fleet: renderFleetPanel,
-  trailers: renderTrailersPanel   // v3: Anhänger-Fuhrpark
+  trailers: renderTrailersPanel,  // v3: Anhänger-Fuhrpark
+  calendar: renderCalendarPanel,  // v5.4
+  hall: renderHallPanel           // v5.4
 };
 let activeTab = 'events';
 
@@ -86,7 +93,7 @@ app.rerenderTab = (tab) => { if (!tab || tab === activeTab) PANELS[activeTab]($(
 function setMobileView(view) {
   document.body.dataset.mobileView = view;
   $$('#mobileNav .mnav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  if (['events', 'lager', 'tools', 'fleet', 'trailers'].includes(view) && view !== activeTab) showTab(view, { mobile: false });
+  if (['events', 'lager', 'tools', 'fleet', 'trailers', 'calendar', 'hall'].includes(view) && view !== activeTab) showTab(view, { mobile: false });
 }
 app.setMobileView = setMobileView;
 
@@ -220,7 +227,7 @@ function renderSelectionBar(v) {
       <span class="dot" style="background:${statusInfo(v.status).color}"></span>
       <div class="text-sm leading-tight"><b class="text-white">${v.name}</b><div class="text-[11px] text-cyan-300">Zielplatz antippen</div></div>
       <button class="btn btn-sm btn-primary" data-sel="open">${icon('eye')} Cockpit</button>
-      <button class="btn btn-sm burn-btn !px-2" data-sel="burn" title="2 Driftreifen abgefahren">${icon('flame', 'w-3.5 h-3.5')} -2</button>
+      ${isDriftCar(v) ? html`<button class="btn btn-sm burn-btn !px-2" data-sel="burn" title="2 Driftreifen abgefahren">${icon('flame', 'w-3.5 h-3.5')} -2</button>` : ''}
       <button class="btn-icon" data-sel="cancel">${icon('x')}</button>
     </div>`);
 }

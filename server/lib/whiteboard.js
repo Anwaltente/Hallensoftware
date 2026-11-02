@@ -8,9 +8,12 @@
  *    v5.3: Ein eigenes Zieldatum (target_date) zählt wie eine Deadline; das frühere Datum gewinnt.
  * 5. Haben die Event-Autos keine offenen Tasks, schlägt das Board
  *    allgemeine Hallen-To-Dos vor (z. B. "Kompressor entwässern").
+ * v5.4: Nicht event-kritische Auto-Aufgaben (event_critical = 0) bekommen keine Event-Deadline und blockieren "startklar" nicht.
+ *       Event-Aufgaben (event_id, ohne Auto) laufen mit der Deadline ihres Events.
  */
 const { db } = require('../db');
 const { today, daysBetween } = require('./util');
+const { liftsNow } = require('./lifts');
 
 function urgencyLevel(daysLeft) {
   if (daysLeft === null) return 'none';
@@ -43,8 +46,16 @@ function buildWhiteboard() {
   for (const task of tasks) {
     // v5.3: eigenes Zieldatum zählt wie eine Deadline (das frühere von Zieldatum und Event gewinnt)
     const own = task.target_date ? { daysLeft: daysBetween(t, task.target_date), overdue: task.target_date < t } : null;
+    if (task.event_id && !task.vehicle_id) {
+      const ev = upcoming.find((e) => e.id === task.event_id);
+      if (ev) {
+        const daysLeft = Math.max(0, daysBetween(t, ev.date_start));
+        urgent.push({ ...task, event_name: ev.name, deadline: ev.date_start, daysLeft, urgency: urgencyLevel(daysLeft), target_days: own ? own.daysLeft : null, target_overdue: own ? own.overdue : false });
+      }
+      continue;   // Aufgaben vergangener Events tauchen nicht mehr auf
+    }
     if (!task.vehicle_id) { hall.push(own ? { ...task, target_days: own.daysLeft, target_overdue: own.overdue } : task); continue; }
-    const ev = nextEvent.get(task.vehicle_id);
+    const ev = task.event_critical === 0 ? null : nextEvent.get(task.vehicle_id);
     if (ev && !(task.target_date && task.target_date < ev.date_start)) {
       const daysLeft = Math.max(0, daysBetween(t, ev.date_start));
       urgent.push({ ...task, event_id: ev.event_id, event_name: ev.event_name, deadline: ev.date_start, daysLeft, urgency: urgencyLevel(daysLeft),
@@ -64,7 +75,7 @@ function buildWhiteboard() {
   hall.sort(byPrioAge);
 
   // Event-Autos ohne offene Aufgaben = "bereit"
-  const busy = new Set(urgent.map((u) => u.vehicle_id));
+  const busy = new Set(urgent.filter((u) => u.vehicle_id && u.event_critical !== 0).map((u) => u.vehicle_id));
   const readyForEvent = [];
   for (const [vehicleId, ev] of nextEvent) {
     if (busy.has(vehicleId)) continue;
@@ -80,6 +91,7 @@ function buildWhiteboard() {
     hall,
     suggestions: urgent.length ? [] : hall.slice(0, 5),
     readyForEvent,
+    liftsNow: liftsNow(),   // v5.4: laufende Bühnen-Reservierungen (Map + TV)
     nextEvent: upcoming[0] ? { ...upcoming[0], daysLeft: daysBetween(t, upcoming[0].date_start) } : null
   };
 }

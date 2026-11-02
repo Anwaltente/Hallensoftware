@@ -9,6 +9,7 @@ import { get, post, put, del } from './api.js';
 import { html, setHTML, el, on, icon, toast, toastError, haptic, fmtDate, daysUntil, countdownLabel, openModal, confirmDialog, formData } from './ui.js';
 import { carThumb } from './sprites.js';
 import { loadingBadge } from './trailers.js';
+import { taskMetaChips, openTaskPlan, subtaskBlock, toggleSubtask } from './workload.js';   // v5.4: Event-Aufgaben
 
 let showPast = false;
 
@@ -51,6 +52,7 @@ export async function renderEventsPanel(container) {
               </div>
               <div class="flex gap-2 mt-3">
                 <button class="btn btn-sm btn-amber flex-1" data-ev-pack="${e.id}">${icon('package')} Packliste${e.packed_count ? html` <span class="opacity-70">· ${e.packed_count} ✓</span>` : ''}</button>
+                <button class="btn btn-sm" data-ev-tasks="${e.id}" title="Event-Aufgaben (Pavillon, Grill, Anhänger …)">${icon('list')} ${e.tasks && e.tasks.total ? `${e.tasks.done}/${e.tasks.total}` : 'Aufgaben'}</button>
                 ${e.vehicle_ids.length ? html`<button class="btn btn-sm" data-ev-load="${e.id}" title="Gespanne & Beladung">${icon('car')} <span data-ev-badge="${e.id}"></span></button>` : ''}
                 ${canEdit() ? html`<button class="btn btn-sm" data-ev-edit="${e.id}">${icon('edit')}</button>` : ''}
               </div>
@@ -68,6 +70,7 @@ export async function renderEventsPanel(container) {
       try { openEventEditor(await get(`/events/${b.dataset.evEdit}`)); } catch (err) { toastError(err); }
     });
     on(container, 'click', '[data-ev-pack]', (_e, b) => openPacklist(Number(b.dataset.evPack)));
+    on(container, 'click', '[data-ev-tasks]', (_e, b) => openEventTasks(Number(b.dataset.evTasks)));
     on(container, 'change', '[data-ev-past]', (_e, c) => { showPast = c.checked; app.rerenderTab('events'); });
     on(container, 'click', '[data-ev-load]', (_e, b) => app.openLoadingPlan(Number(b.dataset.evLoad)));
   }
@@ -173,6 +176,7 @@ export async function openPacklist(eventId) {
     title: `Packliste · ${data.event.name}`, subtitle: `${fmtDate(data.event.date_start)}${data.event.location ? ` · ${data.event.location}` : ''}`,
     size: 'lg', iconName: 'package', body,
     footer: html`${canEdit() ? html`<button class="btn btn-ghost mr-auto" data-reset>${icon('undo')} Haken zurücksetzen</button>` : ''}
+      <button class="btn" data-evtasks>${icon('list')} Event-Aufgaben</button>
       <button class="btn" data-print>${icon('print')} Drucken</button><button class="btn btn-primary" data-close>Fertig</button>`
   });
 
@@ -269,6 +273,7 @@ export async function openPacklist(eventId) {
     } catch (err) { toastError(err); }
   });
   m.footer.querySelector('[data-print]').addEventListener('click', () => window.print());
+  m.footer.querySelector('[data-evtasks]').addEventListener('click', () => openEventTasks(eventId));
   const reset = m.footer.querySelector('[data-reset]');
   if (reset) reset.addEventListener('click', async () => {
     if (!(await confirmDialog('Alle Haken dieser Packliste entfernen?', { okLabel: 'Zurücksetzen' }))) return;
@@ -278,4 +283,54 @@ export async function openPacklist(eventId) {
   // Event-Liste (Zähler) im Hintergrund aktualisieren, wenn das Modal geschlossen wird
   const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { obs.disconnect(); refreshEvents().catch(() => {}); } });
   obs.observe(document.getElementById('modalRoot'), { childList: true });
+}
+
+/* ====================================================================== */
+/* v5.4: Event-Aufgaben (fahrzeugübergreifend: Pavillon, Grill, Anhänger …) */
+/* ====================================================================== */
+export async function openEventTasks(eventId) {
+  const ev = store.events.find((e) => e.id === eventId) || (await get(`/events/${eventId}`).catch(() => null));
+  if (!ev) return;
+  const body = el(html`<div data-list><p class="text-sm text-slate-500">Lädt …</p></div>`);
+  const m = openModal({
+    title: `Event-Aufgaben · ${ev.name}`, subtitle: 'Gehört keinem Auto, sondern dem ganzen Event', size: 'md', iconName: 'list', body,
+    footer: html`${canEdit() ? html`<button class="btn btn-primary mr-auto" data-new>${icon('plus')} Aufgabe</button>` : ''}<button class="btn" data-close>Fertig</button>`
+  });
+  let tasks = [];
+  async function render() {
+    try { tasks = await get(`/tasks?eventId=${eventId}`); } catch (err) { toastError(err); return; }
+    const done = tasks.filter((t) => t.status === 'done').length;
+    const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+    setHTML(body, html`
+      <div class="flex items-center gap-3 mb-4"><div class="flex-1 h-2 rounded-full bg-white/10 overflow-hidden"><div class="h-full ${pct === 100 ? 'bg-lime-400' : 'bg-cyan-400'}" style="width:${pct}%"></div></div>
+        <span class="text-sm text-white font-display font-bold">${done}/${tasks.length}</span></div>
+      <div class="space-y-2">${tasks.length ? tasks.map((t) => html`
+        <div class="card px-3 py-2.5 ${t.status === 'done' ? 'opacity-60' : ''}">
+          <div class="flex items-start gap-2.5">
+            ${canEdit() ? html`<button class="mt-0.5 w-5 h-5 rounded border-2 shrink-0 grid place-items-center ${t.status === 'done' ? 'bg-lime-400 border-lime-400 text-black' : 'border-slate-500 hover:border-lime-400'}" data-toggle="${t.id}">${t.status === 'done' ? icon('check', 'w-3 h-3') : ''}</button>` : ''}
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold text-white ${t.status === 'done' ? 'line-through' : ''}">${t.title}</div>
+              ${t.description ? html`<div class="text-xs text-slate-400">${t.description}</div>` : ''}
+              <div class="flex flex-wrap gap-1 mt-1">${taskMetaChips(t)}</div>
+              ${subtaskBlock(t)}
+            </div>
+            ${canEdit() ? html`<div class="flex flex-col gap-1 shrink-0"><button class="btn-icon !w-8 !h-8" data-edit="${t.id}" title="Bearbeiten">${icon('edit')}</button>
+              <button class="btn-icon !w-8 !h-8 hover:!text-rose-300" data-del="${t.id}" title="Löschen">${icon('trash')}</button></div>` : ''}
+          </div>
+        </div>`) : html`<div class="card p-5 text-center text-sm text-slate-400">Noch keine Event-Aufgaben. Z. B. „Pavillon &amp; Gewichte einladen“, „Grillkohle &amp; Getränke besorgen“, „Anhänger ankuppeln &amp; Beleuchtung prüfen“.</div>`}</div>`);
+  }
+  const after = async () => { await render(); refreshWhiteboard().catch(() => {}); refreshEvents().then(() => app.rerenderTab('events')).catch(() => {}); };
+  on(body, 'click', '[data-sub]', (_e, b) => toggleSubtask(b.dataset.sub, after));
+  on(body, 'click', '[data-edit]', (_e, b) => { const t = tasks.find((x) => x.id === Number(b.dataset.edit)); if (t) openTaskPlan(t, after); });
+  on(body, 'click', '[data-toggle]', async (_e, b) => {
+    const t = tasks.find((x) => x.id === Number(b.dataset.toggle));
+    try { haptic(10); await post(`/tasks/${t.id}/${t.status === 'done' ? 'reopen' : 'done'}`, {}); await after(); } catch (err) { toastError(err); }
+  });
+  on(body, 'click', '[data-del]', async (_e, b) => {
+    if (!(await confirmDialog('Event-Aufgabe löschen?', { danger: true, okLabel: 'Löschen' }))) return;
+    try { await del(`/tasks/${b.dataset.del}`); await after(); } catch (err) { toastError(err); }
+  });
+  const nb = m.footer.querySelector('[data-new]');
+  if (nb) nb.addEventListener('click', () => openTaskPlan({ event_id: eventId }, after));
+  render();
 }

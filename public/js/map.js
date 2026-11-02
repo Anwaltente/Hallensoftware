@@ -804,6 +804,11 @@ export class HallMap {
         this.label(o.x + o.w / 2, o.y + o.h / 2, o.code || '', { size: Math.max(12, Math.min(64, o.w * this.cam.zoom * 0.42)), color: 'rgba(255,255,255,0.07)', weight: 800, font: 'display', world: true });
         const slotText = (o.label || '').toUpperCase().includes(String(o.code || '').toUpperCase()) ? o.label : `${o.code || ''} · ${o.label || ''}`;
         this.label(o.x + 0.14, o.y + 0.24, slotText.toUpperCase(), { size: 9, color: `${color}`, weight: 700, font: 'display', spacing: 1, align: 'left' });
+        // v5.4: laufende Bühnen-Reservierung (wer, was, bis wann)
+        if (kind === 'lift') {
+          const b = ((store.whiteboard && store.whiteboard.liftsNow) || []).find((x) => x.lift_slot === o.id);
+          if (b) this.label(o.x + o.w / 2, o.y + o.h + 0.22, `🔧 ${b.assigned_name || 'offen'} · ${b.vehicle_name || b.title} · bis ${b.lift_to.slice(11)}`, { size: 9, color: '#04131a', bg: b.assigned_color || '#22d3ee', weight: 800, font: 'display' });
+        }
         break;
       }
       case 'shelf': {

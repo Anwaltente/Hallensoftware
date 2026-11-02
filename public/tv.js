@@ -107,6 +107,10 @@ function renderEvent() {
         <div style="flex:1"><div class="h" style="margin-bottom:1vh">Packliste ${pl.packed} von ${pl.total}</div><div class="bar"><span style="width:${pl.pct}%"></span></div></div>
         <div class="pct">${pl.pct}%</div>
       </div>
+      ${ev.tasks && ev.tasks.total ? `<div style="display:flex;align-items:center;gap:2vw;margin-top:2vh">
+        <div style="flex:1"><div class="h" style="margin-bottom:1vh">Event-Aufgaben ${ev.tasks.done} von ${ev.tasks.total}</div><div class="bar"><span style="width:${ev.tasks.pct}%"></span></div></div>
+        <div class="pct">${ev.tasks.pct}%</div>
+      </div>` : ''}
     </div>
     <div class="panel"><div class="h">Autos fürs Event</div>
       ${(ev.vehicles || []).map((v) => {
@@ -114,7 +118,7 @@ function renderEvent() {
         return `<div class="carrow"><img src="${carThumb(modelOf(v.model), v.color, { w: 90, h: 42 })}" alt="">
           <span class="n">${esc(v.name)}</span>
           <span class="dot" style="background:${STATUS_COLOR[v.status] || '#94a3b8'}"></span>
-          <span class="chip">${v.open_tasks ? `${v.open_tasks} offen` : 'startklar'}</span>
+          <span class="chip">${v.critical_tasks ? `${v.critical_tasks} offen` : 'startklar'}</span>
           ${lr && lr.status ? `<span class="amp ${esc(lr.status)}" title="${esc(lr.issue || '')}">${lr.status === 'red' ? esc(lr.issue || 'Problem') : esc(lr.trailer || '')}</span>` : ''}</div>`;
       }).join('') || '<div class="big-empty">Noch keine Autos gewählt.</div>'}
       ${ev.loading && ev.loading.summary.red ? `<div class="amp red" style="display:block;margin-top:2vh;font-size:2.2vh;text-align:center">${ev.loading.summary.red} Gespann(e) nicht zulässig!</div>` : ''}
@@ -169,6 +173,7 @@ function hallSvg() {
         }).join('')
       : occ.length ? `<text x="${s.x + s.w / 2}" y="${s.y + s.h / 2}" text-anchor="middle" font-size="0.32" fill="#fff" font-family="IBM Plex Sans, Arial, sans-serif" font-weight="600">${esc(name.length > 24 ? `${name.slice(0, 23)}…` : name)}</text>`
         : `<text x="${s.x + s.w / 2}" y="${s.y + s.h / 2}" text-anchor="middle" font-size="0.4" fill="#22c55e" font-family="Chakra Petch, Arial, sans-serif" font-weight="700">FREI</text>`}
+      ${(() => { const b = s.kind === 'lift' && (data.liftsNow || []).find((x) => x.lift_slot === s.id); return b ? `<text x="${s.x + s.w / 2}" y="${s.y + s.h - 0.3}" text-anchor="middle" font-size="0.26" fill="#22d3ee" font-family="Chakra Petch, Arial, sans-serif" font-weight="700">🔧 ${esc(b.assigned_name || 'offen')} · ${esc(b.vehicle_name || b.title)} · bis ${esc(b.lift_to.slice(11))}</text>` : ''; })()}
       ${s.blocksLane && occ.length ? `<text x="${s.x + s.w / 2}" y="${s.y + s.h - 0.3}" text-anchor="middle" font-size="0.28" fill="#facc15" font-family="Chakra Petch, Arial, sans-serif" font-weight="700">SCHNEISE BLOCKIERT</text>` : ''}
     </g>`;
   }).join('');
@@ -205,7 +210,8 @@ function wEvent() {
     <div class="w-ev-meta">${esc(fmtDate(ev.date_start))}${ev.start_time ? ` · ${esc(ev.start_time)} Uhr` : ''}${ev.location ? ` · ${esc(ev.location)}` : ''}</div>
     <div class="countdown w-cd" data-cd></div>
     <div class="w-pack"><span>Packliste ${pl.packed}/${pl.total}</span><div class="bar"><span style="width:${pl.pct}%"></span></div><b>${pl.pct}%</b></div>
-    <div class="w-chips">${(ev.vehicles || []).map((v) => `<span class="chip"><span class="dot" style="background:${STATUS_COLOR[v.status] || '#94a3b8'}"></span>${esc(v.name)}${v.open_tasks ? ` · ${v.open_tasks} offen` : ''}</span>`).join('')}</div>`;
+    ${ev.tasks && ev.tasks.total ? `<div class="w-pack"><span>Aufgaben ${ev.tasks.done}/${ev.tasks.total}</span><div class="bar"><span style="width:${ev.tasks.pct}%"></span></div><b>${ev.tasks.pct}%</b></div>` : ''}
+    <div class="w-chips">${(ev.vehicles || []).map((v) => `<span class="chip"><span class="dot" style="background:${STATUS_COLOR[v.status] || '#94a3b8'}"></span>${esc(v.name)}${v.critical_tasks ? ` · ${v.critical_tasks} offen` : ''}</span>`).join('')}</div>`;
 }
 
 function wWork() {

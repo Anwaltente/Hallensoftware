@@ -28,6 +28,7 @@ const vehicleSchema = {
   extern_location: (v) => strOrNull(v) || 'Paddock',
   mileage: toIntOrNull,
   notes: strOrNull,
+  vtype: (v) => (['drift', 'street', 'trailer', 'project'].includes(v) ? v : 'drift'),   // v5.4: Fahrzeugtyp
   // v3: Gewicht / Maße für den Gespann-Rechner (leer = Werte des Modells)
   weight_kg: toIntOrNull,
   length_cm: toIntOrNull,

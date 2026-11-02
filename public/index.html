@@ -15,6 +15,10 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
   <title>HALLE//OS · Werkstatt-Management</title>
+  <!-- Vorschau beim Teilen des Links (WhatsApp, Slack, Social Media) -->
+  <meta property="og:title" content="ON-Software · Das visuelle Betriebs-System">
+  <meta property="og:description" content="Hebebühnen-Management, Zeiterfassung & QR-Lager für Werkstätten & Teams.">
+  <meta property="og:url" content="https://software.onmedia-edit.de">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0d12'/%3E%3Cpath d='M6 26V12l10-6 10 6v14' fill='none' stroke='%2322d3ee' stroke-width='3'/%3E%3Crect x='11' y='17' width='10' height='9' fill='%23facc15'/%3E%3C/svg%3E">
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
 
@@ -140,6 +144,8 @@
           <button class="tab" data-tab="tools">Werkzeug</button>
           <button class="tab" data-tab="fleet">Fuhrpark</button>
           <button class="tab" data-tab="trailers">Anhänger</button>
+          <button class="tab" data-tab="calendar">Kalender</button>
+          <button class="tab" data-tab="hall">Halle</button>
         </nav>
         <div id="rightContent" class="flex-1 overflow-y-auto"></div>
       </aside>
@@ -152,6 +158,7 @@
     <nav id="mobileNav" class="lg:hidden h-16 shrink-0 tread border-t border-white/10 flex items-stretch px-1 pb-[env(safe-area-inset-bottom)] relative z-40">
       <button class="mnav-btn active" data-view="map"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span class="game-only">Halle</span><span class="biz-only">Plätze</span></button>
       <button class="mnav-btn" data-view="board"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="1"/><path d="M8 21l4-4 4 4M6 8h8M6 12h5"/></svg><span class="game-only">Board</span><span class="biz-only">Aufgaben</span></button>
+      <button class="mnav-btn" data-view="calendar"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l10 5-10 5L2 7z"/><path d="M2 12l10 5 10-5M2 17l10 5 10-5"/></svg>Bühnen</button>
       <button class="mnav-btn" data-view="events"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Events</button>
       <button class="mnav-btn" data-view="lager"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/></svg>Lager</button>
       <button class="mnav-btn" data-view="tools"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Werkzeug</button>

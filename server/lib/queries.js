@@ -37,8 +37,10 @@ function listEvents({ upcomingOnly = false } = {}) {
     : db.prepare('SELECT * FROM events ORDER BY date_start DESC').all();
   const veh = db.prepare('SELECT vehicle_id FROM event_vehicles WHERE event_id = ?');
   const packed = db.prepare('SELECT COUNT(*) AS c FROM packlist_checks WHERE event_id = ? AND packed = 1');
+  const tasks = db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(status = 'done'), 0) AS done FROM tasks WHERE event_id = ?");   // v5.4: Event-Aufgaben
   return rows.map((e) => ({
     ...e,
+    tasks: tasks.get(e.id),
     vehicle_ids: veh.all(e.id).map((r) => r.vehicle_id),
     packed_count: packed.get(e.id).c,
     past: (e.date_end || e.date_start) < t

@@ -12,7 +12,7 @@ import { renderSetupTab } from './setup.js';
 import { printLabels } from './qr.js';
 import { dimsFields, bindDims, dimsPayload } from './dims.js';   // v4.1: Radmaße + KI-Auto-Fill
 import { renderQuickSpecs } from './quickspecs.js';             // v5.2: Spickzettel
-import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan } from './workload.js';   // v5.3: Zeit, Zuweisung, Pause
+import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle } from './workload.js';   // v5.3/v5.4
 import { track } from './track.js';                              // v5.3: Aktivitäts-Log
 
 const TABS = [
@@ -20,6 +20,9 @@ const TABS = [
   ['setup', 'Setup & Maße', 'gauge'], ['data', 'Daten & TÜV', 'settings'], ['parts', 'Teile', 'box'], ['events', 'Events', 'flag'], ['edit', 'Einstellungen', 'edit']
 ];
 const DOC_KINDS = { schein: 'Fahrzeugschein', gutachten: 'Gutachten / Teilegutachten', tuev: 'TÜV-Bericht', foto: 'Foto', rechnung: 'Rechnung', sonstiges: 'Sonstiges' };
+export const VEHICLE_TYPES = { drift: 'Drift-Tool', street: 'Alltagsauto / Straße', trailer: 'Trailer / Zugfahrzeug', project: 'Projekt' };   // v5.4
+/** v5.4: "-2 Burned" nur bei Drift-Autos (leer = alter Datensatz = Drift) */
+export const isDriftCar = (v) => !!v && (!v.vtype || v.vtype === 'drift');
 const COLOR_PRESETS = ['#f5c518', '#b91c1c', '#1e40af', '#0f766e', '#111827', '#e5e7eb', '#9ca3af', '#f97316', '#7c3aed', '#16a34a', '#0ea5e9', '#be185d'];
 
 function tuevInfo(val) {
@@ -94,7 +97,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
             ${v.slot_id && store.vehicles.filter((x) => x.slot_id === v.slot_id).length > 1 ? html`<button class="btn btn-sm" data-quick="swaplevel">${icon('layers')} Oben/Unten tauschen</button>` : ''}
             <button class="btn btn-sm" data-quick="map">${icon('target')} Auf Map zeigen</button>
             <button class="btn btn-sm" data-quick="wheels">${icon('tyre')} Räder</button>
-            <button class="btn btn-sm burn-btn" data-quick="burn" title="2 Driftreifen dieses Autos als abgefahren buchen">${icon('flame')} -2 Burned</button>
+            ${isDriftCar(v) ? html`<button class="btn btn-sm burn-btn" data-quick="burn" title="2 Driftreifen dieses Autos als abgefahren buchen">${icon('flame')} -2 Burned</button>` : ''}
             <button class="btn btn-sm" data-quick="qr">${icon('qr')} QR-Code drucken</button>
           </div>` : ''}
       </div>`);
@@ -122,7 +125,8 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
 
   /* ---------------- Aufgaben ---------------- */
   function tabTasks() {
-    const open = data.tasks.filter((t) => t.status === 'open');
+    const open = mineFilter(data.tasks.filter((t) => t.status === 'open'));
+    const people = (store.users || []).filter((u) => u.role !== 'gast');
     const done = data.tasks.filter((t) => t.status === 'done').slice(-8).reverse();
     setHTML(content, html`
       ${canEdit() ? html`
@@ -138,8 +142,11 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
           </select>
           <input class="input text-sm" name="estimated_hours" type="number" step="0.25" min="0" inputmode="decimal" placeholder="Zeit (Std.)" title="Geschätzter Aufwand in Stunden, z. B. 2,5">
           <input class="input col-span-2 sm:col-span-1 text-sm" name="target_date" type="date" title="Zieldatum (geplante Fertigstellung)">
+          <label class="col-span-2 flex items-center gap-2 text-xs text-slate-300" title="Ohne Haken blockiert die Aufgabe die Event-Freigabe nicht"><input type="checkbox" class="check !w-4 !h-4" name="event_critical" checked> Event-kritisch / vor Abfahrt zwingend</label>
+          <button type="button" class="btn btn-sm col-span-2 sm:col-span-1" data-taskfull>${icon('layers', 'w-3.5 h-3.5')} Mit Bühne / Unteraufgaben …</button>
         </form>
-        <div class="flex items-center gap-2 mb-3 text-xs text-slate-400">
+        <div class="flex items-center gap-3 mb-3 text-xs text-slate-400">
+          ${onlyMineToggle()}
           <label class="flex items-center gap-2">Km-Stand fürs Protokoll <input class="input !w-32 !py-1 text-sm" type="number" data-mileage placeholder="${data.vehicle.mileage || ''}"></label>
         </div>` : ''}
       <div class="space-y-2">
@@ -149,7 +156,9 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
             <div class="flex-1 min-w-0">
               <div class="font-semibold text-white">${t.title}</div>
               ${t.description ? html`<div class="text-sm text-slate-400">${t.description}</div>` : ''}
-              <div class="flex flex-wrap gap-1 mt-1.5">${taskMetaChips(t)}</div>
+              <div class="flex flex-wrap items-center gap-1 mt-1.5">${canEdit() ? html`<select class="select !py-0.5 !text-[11px] !w-auto" data-assign="${t.id}" title="Zuständig">
+                <option value="">offen für alle</option>${people.map((u) => html`<option value="${u.id}" ${t.assigned_user === u.id ? 'selected' : ''}>${u.name}</option>`)}</select>` : ''}${taskMetaChips(t, { showAssignee: !canEdit() })}</div>
+              ${subtaskBlock(t)}
               ${pausedBox(t)}
               <div class="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-2">angelegt ${fmtDate(t.created_at)}${t.created_by_name ? ` von ${t.created_by_name}` : ''}
                 ${t.cost ? html`<span class="text-amber-300">${euro(t.cost)} · im Budget</span>` : ''}</div>
@@ -498,10 +507,20 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
   on(content, 'click', '[data-addspec]', () => content.querySelector('[data-specs]').appendChild(el(specRow({}))));
   on(content, 'click', '[data-delspec]', (_e, b) => b.closest('[data-specrow]').remove());
 
+  // v5.4: Zuweisung per Dropdown, "Nur meine", Unteraufgaben
+  on(content, 'change', '[data-assign]', async (_e, s) => {
+    try { await post(`/tasks/${s.dataset.assign}/assign`, { user_id: s.value ? Number(s.value) : null }); haptic(8); await reload({ vehiclesToo: false }); refreshWhiteboard(); } catch (err) { toastError(err); }
+  });
+  on(content, 'change', '[data-onlymine]', (_e, c) => { setOnlyMine(c.checked); renderTab(); });
+
   on(content, 'click', 'button', async (e, b) => {
     const ds = b.dataset;
     try {
-      if (ds.done) {
+      if (ds.sub) {
+        await toggleSubtask(ds.sub, () => reload());
+      } else if ('taskfull' in ds) {
+        openTaskPlan({ vehicle_id: id, vehicle_name: data.vehicle.name, title: content.querySelector('[data-form="task"] [name="title"]').value }, () => reload());
+      } else if (ds.done) {
         haptic([10, 30, 10]);
         const mileage = content.querySelector('[data-mileage]');
         await post(`/tasks/${ds.done}/done`, { mileage: mileage && mileage.value ? Number(mileage.value) : null });
@@ -615,6 +634,8 @@ function vehicleFormFields(v = {}, { readonly = false, isNew = false } = {}) {
           ${Object.values(store.meta.models).some((mm) => mm.builtin === false) ? html`<optgroup label="Eigene Modelle">${Object.entries(store.meta.models).filter(([, mm]) => mm.builtin === false).map(([k, mm]) => html`<option value="${k}" ${v.model === k ? 'selected' : ''}>${mm.label}</option>`)}</optgroup>` : ''}
         </select>
         ${isAdmin() && !readonly ? html`<span class="text-[10px] text-slate-500">Modell fehlt? Admin-Konsole &gt; Fahrzeug-Modelle</span>` : ''}</label>
+      <label><span class="label">Fahrzeugtyp</span>
+        <select class="select" name="vtype" ${dis}>${Object.entries(VEHICLE_TYPES).map(([k, l]) => html`<option value="${k}" ${(v.vtype || 'drift') === k ? 'selected' : ''}>${l}</option>`)}</select></label>
       <label><span class="label">Kennzeichen</span><input class="input font-mono" name="plate" value="${v.plate || ''}" ${dis}></label>
       <div class="sm:col-span-2"><span class="label">Farbe</span>
         <div class="flex flex-wrap items-center gap-2">

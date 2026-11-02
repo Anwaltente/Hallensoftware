@@ -8,7 +8,7 @@ import { store, app, subscribe, canEdit, modelInfo, refreshWhiteboard, refreshVe
 import { get, post, del } from './api.js';
 import { html, setHTML, el, on, icon, toast, toastError, haptic, since, fmtDate, countdownLabel, openModal, initials } from './ui.js';
 import { carThumb } from './sprites.js';
-import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, openWorkload } from './workload.js';   // v5.3
+import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, openWorkload, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle } from './workload.js';   // v5.3/v5.4
 
 let root = null;
 let pending = false;
@@ -40,11 +40,12 @@ function taskRow(t, { showEvent = true } = {}) {
         <div class="flex-1 min-w-0">
           <button class="text-left text-sm font-semibold text-white leading-snug hover:text-cyan-300" data-act="open">${t.title}</button>
           <div class="flex flex-wrap items-center gap-1.5 mt-1">
-            ${t.vehicle_name ? html`<span class="chip"><span class="dot" style="background:${t.vehicle_color}"></span>${t.vehicle_name}</span>` : html`<span class="chip">Halle</span>`}
+            ${t.vehicle_name ? html`<span class="chip"><span class="dot" style="background:${t.vehicle_color}"></span>${t.vehicle_name}</span>` : t.event_id ? html`<span class="chip !text-amber-200">${icon('flag', 'w-3 h-3')} Event-Aufgabe</span>` : html`<span class="chip">Halle</span>`}
             ${t.priority === 1 ? html`<span class="chip !text-rose-300 !border-rose-400/40">Prio hoch</span>` : ''}
             ${showEvent && t.event_name && t.deadline_kind !== 'target' ? html`<span class="chip ${t.urgency === 'critical' ? '!text-rose-200 !border-rose-400/50 !bg-rose-500/10' : t.urgency === 'soon' ? '!text-amber-200 !border-amber-400/50' : '!text-cyan-200 !border-cyan-400/40'}">${icon('flag', 'w-3 h-3')} ${t.event_name} · ${countdownLabel(t.daysLeft)}</span>` : ''}
             ${taskMetaChips(t)}
           </div>
+          ${subtaskBlock(t)}
           ${pausedBox(t)}
         </div>
         ${editable ? html`<div class="flex flex-col gap-1 shrink-0">
@@ -60,7 +61,9 @@ function render() {
   if (!root) return;
   if (isTyping()) { pending = true; return; }
   pending = false;
-  const wb = store.whiteboard;
+  const raw = store.whiteboard;
+  // v5.4: "Nur meine Aufgaben"
+  const wb = raw && { ...raw, urgent: mineFilter(raw.urgent), backlog: mineFilter(raw.backlog), hall: mineFilter(raw.hall), suggestions: mineFilter(raw.suggestions) };
   const work = store.work || [];
   const me = store.me;
   const myWork = me && work.find((w) => w.user_id === me.id);
@@ -68,6 +71,7 @@ function render() {
   setHTML(root, html`
     <div class="px-4 pt-4 pb-3 border-b border-white/10 flex items-center gap-2 shrink-0">
       <h2 class="whiteboard-title text-xl text-white flex-1">Whiteboard</h2>
+      ${store.me ? onlyMineToggle() : ''}
       <button class="btn btn-sm" data-act="workload" title="Team-Auslastung: wer hat wie viel zu tun?">${icon('users', 'w-3.5 h-3.5')} Team</button>
       <button class="btn-icon" data-act="refresh" title="Aktualisieren">${icon('refresh')}</button>
     </div>
@@ -120,7 +124,8 @@ function render() {
       <!-- HALLEN-TO-DOS -->
       ${wb ? html`
         <section>
-          <h3 class="font-display text-xs font-bold tracking-[0.2em] text-slate-300 mb-2">HALLEN-TO-DOS</h3>
+          <div class="flex items-center mb-2"><h3 class="font-display text-xs font-bold tracking-[0.2em] text-slate-300 flex-1">HALLEN-TO-DOS</h3>
+            <button class="text-[11px] text-cyan-300 hover:underline" data-act="hallboard">Hallen-Wartung öffnen →</button></div>
           <div class="space-y-2">${wb.hall.map((t) => taskRow(t))}</div>
           ${canEdit() ? html`<form class="flex gap-2 mt-2" data-form="hall"><input class="input text-sm" name="title" placeholder="Neues Hallen-To-Do …" autocomplete="off"><button class="btn btn-sm">${icon('plus')}</button></form>` : ''}
         </section>
@@ -166,6 +171,8 @@ async function afterChange() {
 }
 
 function bind() {
+  on(root, 'click', '[data-sub]', (_e, b) => toggleSubtask(b.dataset.sub, afterChange));
+  on(root, 'change', '[data-onlymine]', (_e, c) => { setOnlyMine(c.checked); render(); });
   on(root, 'click', '[data-act]', async (e, btn) => {
     const act = btn.dataset.act;
     const taskId = btn.closest('[data-task]') && btn.closest('[data-task]').dataset.task;
@@ -189,7 +196,10 @@ function bind() {
       if (act === 'open') {
         const t = findTask(taskId);
         if (t && t.vehicle_id) app.navigate({ kind: 'vehicle', vehicleId: t.vehicle_id, tab: 'tasks' });
+        else if (t && t.event_id) app.navigate({ kind: 'event', eventId: t.event_id });
+        else if (t) openTaskPlan(t, afterChange);
       }
+      if (act === 'hallboard') app.showTab('hall');
       if (act === 'stop') { await post('/work/stop'); toast('Feierabend eingetragen. Gute Arbeit!'); await afterChange(); }
       // v5.3: Team-Koordination
       if (act === 'workload') openWorkload();
