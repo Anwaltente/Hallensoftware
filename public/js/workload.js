@@ -99,6 +99,12 @@ const pad = (n) => String(n).padStart(2, '0');
 const localDt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 export const subtasksOf = (t) => { try { return JSON.parse(t.subtasks || '[]') || []; } catch { return []; } };
 
+/** Bestehende Aufgabe nachträglich auf eine Hebebühne buchen: Editor mit vorausgewählter Bühne. */
+export function openLiftPlan(task, onDone) {
+  if (!liftList().length) { toast('Im Hallenplan ist noch keine Hebebühne angelegt.', 'warn'); return; }
+  openTaskPlan(task.lift_slot !== null && task.lift_slot !== undefined ? task : { ...task, lift_slot: liftList()[0].id }, onDone);
+}
+
 /**
  * Editor für jede Aufgabe (Auto, Halle, Event). task.id fehlt = neu anlegen.
  * opts.pickVehicle: Fahrzeug wählbar (z. B. Reservierung aus dem Kalender)

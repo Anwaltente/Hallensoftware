@@ -6,7 +6,7 @@
 import { app, canEdit, refreshWhiteboard } from './state.js';
 import { get, post, del } from './api.js';
 import { html, setHTML, on, icon, toast, toastError, haptic, confirmDialog } from './ui.js';
-import { taskMetaChips, pausedBox, openTaskPlan, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle, HALL_CATEGORIES } from './workload.js';
+import { taskMetaChips, pausedBox, openTaskPlan, openLiftPlan, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle, HALL_CATEGORIES } from './workload.js';
 
 let catFilter = '';
 
@@ -47,6 +47,7 @@ export async function renderHallPanel(container) {
                 </div>
                 ${canEdit() ? html`<div class="flex flex-col gap-1 shrink-0">
                   <button class="btn-icon !w-8 !h-8" data-hall-edit="${t.id}" title="Bearbeiten">${icon('edit')}</button>
+                  <button class="btn-icon !w-8 !h-8 ${t.lift_from ? '!text-cyan-300' : ''}" data-hall-lift="${t.id}" title="Hebebühne reservieren">${icon('layers')}</button>
                   <button class="btn-icon !w-8 !h-8 hover:!text-rose-300" data-hall-del="${t.id}" title="Löschen">${icon('trash')}</button></div>` : ''}
               </div>
             </div>`)}</div>
@@ -62,6 +63,7 @@ export async function renderHallPanel(container) {
   on(container, 'change', '[data-onlymine]', (_e, c) => { setOnlyMine(c.checked); app.rerenderTab('hall'); });
   on(container, 'click', '[data-hall-new]', () => openTaskPlan({ category: catFilter || 'allgemein' }, again));
   on(container, 'click', '[data-hall-edit]', (_e, b) => { const t = find(b.dataset.hallEdit); if (t) openTaskPlan(t, again); });
+  on(container, 'click', '[data-hall-lift]', (_e, b) => { const t = find(b.dataset.hallLift); if (t) openLiftPlan(t, again); });
   on(container, 'click', '[data-sub]', (_e, b) => toggleSubtask(b.dataset.sub, again));
   on(container, 'click', '[data-hall-done]', async (_e, b) => {
     const t = find(b.dataset.hallDone);

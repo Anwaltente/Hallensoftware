@@ -9,7 +9,7 @@ import { get, post, put, del } from './api.js';
 import { html, setHTML, el, on, icon, toast, toastError, haptic, fmtDate, daysUntil, countdownLabel, openModal, confirmDialog, formData } from './ui.js';
 import { carThumb } from './sprites.js';
 import { loadingBadge } from './trailers.js';
-import { taskMetaChips, openTaskPlan, subtaskBlock, toggleSubtask } from './workload.js';   // v5.4: Event-Aufgaben
+import { taskMetaChips, openTaskPlan, openLiftPlan, subtaskBlock, toggleSubtask } from './workload.js';   // v5.4: Event-Aufgaben
 
 let showPast = false;
 
@@ -315,12 +315,14 @@ export async function openEventTasks(eventId) {
               ${subtaskBlock(t)}
             </div>
             ${canEdit() ? html`<div class="flex flex-col gap-1 shrink-0"><button class="btn-icon !w-8 !h-8" data-edit="${t.id}" title="Bearbeiten">${icon('edit')}</button>
+              ${t.status !== 'done' ? html`<button class="btn-icon !w-8 !h-8 ${t.lift_from ? '!text-cyan-300' : ''}" data-lift="${t.id}" title="Hebebühne reservieren">${icon('layers')}</button>` : ''}
               <button class="btn-icon !w-8 !h-8 hover:!text-rose-300" data-del="${t.id}" title="Löschen">${icon('trash')}</button></div>` : ''}
           </div>
         </div>`) : html`<div class="card p-5 text-center text-sm text-slate-400">Noch keine Event-Aufgaben. Z. B. „Pavillon &amp; Gewichte einladen“, „Grillkohle &amp; Getränke besorgen“, „Anhänger ankuppeln &amp; Beleuchtung prüfen“.</div>`}</div>`);
   }
   const after = async () => { await render(); refreshWhiteboard().catch(() => {}); refreshEvents().then(() => app.rerenderTab('events')).catch(() => {}); };
   on(body, 'click', '[data-sub]', (_e, b) => toggleSubtask(b.dataset.sub, after));
+  on(body, 'click', '[data-lift]', (_e, b) => { const t = tasks.find((x) => x.id === Number(b.dataset.lift)); if (t) openLiftPlan(t, after); });
   on(body, 'click', '[data-edit]', (_e, b) => { const t = tasks.find((x) => x.id === Number(b.dataset.edit)); if (t) openTaskPlan(t, after); });
   on(body, 'click', '[data-toggle]', async (_e, b) => {
     const t = tasks.find((x) => x.id === Number(b.dataset.toggle));

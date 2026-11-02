@@ -8,7 +8,7 @@ import { store, app, subscribe, canEdit, modelInfo, refreshWhiteboard, refreshVe
 import { get, post, del } from './api.js';
 import { html, setHTML, el, on, icon, toast, toastError, haptic, since, fmtDate, countdownLabel, openModal, initials } from './ui.js';
 import { carThumb } from './sprites.js';
-import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, openWorkload, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle } from './workload.js';   // v5.3/v5.4
+import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, openLiftPlan, openWorkload, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle } from './workload.js';   // v5.3/v5.4
 
 let root = null;
 let pending = false;
@@ -52,6 +52,7 @@ function taskRow(t, { showEvent = true } = {}) {
           <button class="btn-icon !w-8 !h-8 opacity-60 group-hover:opacity-100" data-act="work" title="Ich schraube daran">${icon('wrench')}</button>
           ${working || t.paused_at ? html`<button class="btn-icon !w-8 !h-8 ${t.paused_at ? '!text-amber-300' : 'opacity-60 group-hover:opacity-100'}" data-act="pause" title="Arbeit pausieren / Nicht fertig">${icon('pause')}</button>`
             : html`<button class="btn-icon !w-8 !h-8 opacity-60 group-hover:opacity-100" data-act="plan" title="Planen: wer, wie lange, bis wann">${icon('clock')}</button>`}
+          <button class="btn-icon !w-8 !h-8 ${t.lift_from ? '!text-cyan-300' : 'opacity-60 group-hover:opacity-100'}" data-act="lift" title="Hebebühne reservieren">${icon('layers')}</button>
         </div>` : ''}
       </div>
     </div>`;
@@ -203,6 +204,7 @@ function bind() {
       if (act === 'stop') { await post('/work/stop'); toast('Feierabend eingetragen. Gute Arbeit!'); await afterChange(); }
       // v5.3: Team-Koordination
       if (act === 'workload') openWorkload();
+      if (act === 'lift') { const t = findTask(taskId); if (t) openLiftPlan(t, afterChange); }
       if (act === 'pause' || act === 'plan') {
         const t = findTask(taskId);
         if (t) (act === 'pause' ? openPauseDialog : openTaskPlan)(t, afterChange);
