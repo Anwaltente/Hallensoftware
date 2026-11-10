@@ -201,6 +201,12 @@ function completeTask(req, task) {
 }
 
 /** v5.4: Hebebühnen-Kalender: Reservierungen von/bis (JJJJ-MM-TT) mit Konflikten */
+/** v5.6: Freie Bühnensuche. ?days=1..14 | weekend=1, lift=ID (leer = egal), vehicle_id, exclude (Aufgabe, die gerade bearbeitet wird) */
+router.get('/lift-free', (req, res) => {
+  const q = req.query;
+  res.json(lifts.freeSlots({ days: Number(q.days) || 1, weekend: q.weekend === '1', lift: Number(q.lift) || 0, vehicleId: Number(q.vehicle_id) || null, excludeId: Number(q.exclude) || null }));
+});
+
 router.get('/lift-calendar', (req, res) => {
   const from = dateOrNull(req.query.from) || today();
   const to = dateOrNull(req.query.to) || from;

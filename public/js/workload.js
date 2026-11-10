@@ -7,6 +7,7 @@
  */
 import { store, app, canEdit, refreshWhiteboard, refreshVehicles } from './state.js';
 import { get, post, put, patch } from './api.js';
+import { openLiftFinder } from './liftfinder.js';
 import { html, setHTML, el, on, icon, toast, toastError, haptic, fmtDate, openModal, chooseDialog, initials, formData, since } from './ui.js';
 import { track } from './track.js';
 
@@ -188,6 +189,7 @@ export function openTaskPlan(task, onDone) {
           <label class="col-span-2 sm:col-span-1"><span class="label">Bühne</span><select class="select" name="lift_slot">${lifts.map((l) => html`<option value="${l.id}" ${task.lift_slot === l.id ? 'selected' : ''}>${l.label || l.code}</option>`)}<option value="0" ${task.lift_slot === 0 ? 'selected' : ''}>Beliebige Bühne</option></select></label>
           <label><span class="label">Von</span><input class="input" type="date" name="lift_von" value="${liftVon}"></label>
           <label><span class="label">Bis</span><input class="input" type="date" name="lift_bis" value="${liftBis}" min="${liftVon}"></label>
+          <button type="button" class="btn btn-sm col-span-2 sm:col-span-3" data-lift-find>${icon('search', 'w-3.5 h-3.5')} Freie Bühne finden</button>
         </div></div>` : ''}
       <label class="block"><span class="label">Unteraufgaben (eine pro Zeile)</span>
         <textarea class="input text-sm" name="subtasks" rows="${Math.min(8, Math.max(3, subs.length + 1))}" placeholder="Räder aus Regal holen&#10;Neu wuchten&#10;Montieren &amp; Drehmoment 120 Nm prüfen">${subs.map((s) => s.t).join('\n')}</textarea></label>
@@ -202,6 +204,11 @@ export function openTaskPlan(task, onDone) {
   const liftToggle = () => { const box = body.querySelector('[data-liftfields]'); if (box) box.classList.toggle('hidden', !f.lift_on.checked); };
   liftToggle();
   if (f.lift_on) f.lift_on.addEventListener('change', liftToggle);
+  const findBtn = body.querySelector('[data-lift-find]');
+  if (findBtn) findBtn.addEventListener('click', () => openLiftFinder({
+    lifts, vehicleId: task.vehicle_id || null, excludeId: task.id || null,
+    onPick: (r) => { f.lift_slot.value = String(r.lift_id); f.lift_von.value = r.von; f.lift_bis.value = r.bis; f.lift_bis.min = r.von; toast(`Bühne: ${r.lift_label}, ${fmtDate(r.von, { short: true })} bis ${fmtDate(r.bis, { short: true })} übernommen. Mit Speichern reservieren.`, 'ok', 4500); }
+  }));
   if (f.lift_von) {
     // gleicher Tag = 1 Tag geblockt: Bis zieht mit, solange es nicht schon bewusst länger gewählt wurde
     let vonAlt = f.lift_von.value;

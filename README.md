@@ -167,6 +167,12 @@ Bestehende Datenbanken werden beim Start automatisch migriert (neue Tabellen, ne
 Details: `AENDERUNGEN-v5.2.md`.
 
 
+## Neu in Version 5.6
+
+* **Kein Konflikt am selben Fahrzeug:** mehrere Aufgaben am selben Auto auf einer Bühne sind erlaubt und werden im Kalender zu einem Block zusammengefasst. Konflikt nur bei unterschiedlichen Fahrzeugen.
+* **Bühnen-Filter** im Kalender (Alle, Nur Bühne 1, Nur Bühne 2, Nicht bühnengebundene Arbeiten).
+* **Freie Bühne finden:** die nächsten 5 freien Termine für 1 bis 3 Tage oder ein Wochenende (`GET /api/lift-free`). Details: `AENDERUNGEN-v5.6.md`.
+
 ## Neu in Version 5.5
 
 * **Bühne in der Aufgabe, in Tagen:** „Benötigt Hebebühne“ mit Bühne 1 / 2 / beliebig und Von/Bis als Datum, kein eigener Reservieren-Knopf mehr. Kalender mit Tages-Blöcken und Konfliktwarnung.
