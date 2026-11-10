@@ -51,7 +51,7 @@ html.biz .backdrop-blur-sm, html.biz .glass { backdrop-filter: none !important; 
 html.biz .btn:active, html.biz .chip-btn:active, html.biz .btn-icon:active, html.biz .qu-btn:active,
 html.biz .hud-btn:active, html.biz .mnav-btn:active, html.biz .pin-key:active { transform: none !important; }
 html.biz .card-hover:hover, html.biz .eurobox:hover, html.biz .profile-card:hover, html.biz .star:hover { transform: none !important; }
-html.biz .num-pop, html.biz .spark, html.biz .burn-fx, html.biz .hud-mute { display: none !important; }
+html.biz .num-pop, html.biz .spark, html.biz .hud-mute { display: none !important; }
 html.biz img[src^="data:image"] { display: none !important; }   /* Fahrzeug-Sprites */
 html.biz [style*="radial-gradient"] { display: none !important; }   /* Status-Schein im Cockpit */
 html.biz .shrink-0:has(> img[src^="data:image"]) { display: none !important; }   /* Rahmen der Fahrzeug-Grafik */
@@ -141,8 +141,8 @@ html.biz .btn-ghost:hover { background: var(--biz-hover); }
 html.biz .btn-icon { color: #64748b; border-radius: 4px; }
 html.biz .btn-icon:hover { background: var(--biz-hover); color: #0f172a; }
 html.biz .btn-icon.active { background: #eff6ff; color: var(--biz-blue); }
-html.biz .btn-ai, html.biz .burn-btn, html.biz .btn-float, html.biz .scan-btn { background: #ffffff; color: #334155; border: 1px solid #cbd5e1; box-shadow: none; }
-html.biz .btn-ai:hover, html.biz .burn-btn:hover, html.biz .btn-float:hover { background: var(--biz-hover); }
+html.biz .btn-ai, html.biz .btn-float, html.biz .scan-btn { background: #ffffff; color: #334155; border: 1px solid #cbd5e1; box-shadow: none; }
+html.biz .btn-ai:hover, html.biz .btn-float:hover { background: var(--biz-hover); }
 html.biz .btn-float.on { background: #fffbeb; color: #92400e; border-color: #fcd34d; }
 
 html.biz .input, html.biz .select, html.biz textarea.input {

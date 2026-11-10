@@ -12,7 +12,7 @@ import { renderSetupTab } from './setup.js';
 import { printLabels } from './qr.js';
 import { dimsFields, bindDims, dimsPayload } from './dims.js';   // v4.1: Radmaße + KI-Auto-Fill
 import { renderQuickSpecs } from './quickspecs.js';             // v5.2: Spickzettel
-import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, openLiftPlan, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle } from './workload.js';   // v5.3/v5.4
+import { taskMetaChips, pausedBox, openPauseDialog, openTaskPlan, subtaskBlock, toggleSubtask, mineFilter, setOnlyMine, onlyMineToggle } from './workload.js';   // v5.3/v5.4
 import { track } from './track.js';                              // v5.3: Aktivitäts-Log
 
 const TABS = [
@@ -21,8 +21,6 @@ const TABS = [
 ];
 const DOC_KINDS = { schein: 'Fahrzeugschein', gutachten: 'Gutachten / Teilegutachten', tuev: 'TÜV-Bericht', foto: 'Foto', rechnung: 'Rechnung', sonstiges: 'Sonstiges' };
 export const VEHICLE_TYPES = { drift: 'Drift-Tool', street: 'Alltagsauto / Straße', trailer: 'Trailer / Zugfahrzeug', project: 'Projekt' };   // v5.4
-/** v5.4: "-2 Burned" nur bei Drift-Autos (leer = alter Datensatz = Drift) */
-export const isDriftCar = (v) => !!v && (!v.vtype || v.vtype === 'drift');
 const COLOR_PRESETS = ['#f5c518', '#b91c1c', '#1e40af', '#0f766e', '#111827', '#e5e7eb', '#9ca3af', '#f97316', '#7c3aed', '#16a34a', '#0ea5e9', '#be185d'];
 
 function tuevInfo(val) {
@@ -97,7 +95,6 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
             ${v.slot_id && store.vehicles.filter((x) => x.slot_id === v.slot_id).length > 1 ? html`<button class="btn btn-sm" data-quick="swaplevel">${icon('layers')} Oben/Unten tauschen</button>` : ''}
             <button class="btn btn-sm" data-quick="map">${icon('target')} Auf Map zeigen</button>
             <button class="btn btn-sm" data-quick="wheels">${icon('tyre')} Räder</button>
-            ${isDriftCar(v) ? html`<button class="btn btn-sm burn-btn" data-quick="burn" title="2 Driftreifen dieses Autos als abgefahren buchen">${icon('flame')} -2 Burned</button>` : ''}
             <button class="btn btn-sm" data-quick="qr">${icon('qr')} QR-Code drucken</button>
           </div>` : ''}
       </div>`);
@@ -167,7 +164,6 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
               <div class="flex flex-wrap justify-end gap-1 max-w-[5.5rem] sm:max-w-none">
               <button class="btn-icon" data-taskcost="${t.id}" title="Preis festlegen (erscheint automatisch im Budget)">${icon('euro')}</button>
               <button class="btn-icon" data-taskplan="${t.id}" title="Planen: zuständig, Zeit, Zieldatum">${icon('clock')}</button>
-              <button class="btn-icon ${t.lift_from ? '!text-cyan-300' : ''}" data-tasklift="${t.id}" title="Hebebühne reservieren">${icon('layers')}</button>
               <button class="btn-icon ${t.paused_at ? '!text-amber-300' : ''}" data-taskpause="${t.id}" title="Arbeit pausieren / Nicht fertig">${icon('pause')}</button>
               <button class="btn-icon" data-worktask="${t.id}" title="Ich schraube daran">${icon('wrench')}</button>
               <button class="btn-icon hover:!text-rose-300" data-deltask="${t.id}" title="Löschen">${icon('trash')}</button></div>` : ''}
@@ -473,7 +469,6 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
     if (q === 'work') { openWorkDialog(v.id); }
     if (q === 'map') { m.close(); app.setMobileView && app.setMobileView('map'); app.map.focusVehicle(v.id); }
     if (q === 'wheels') app.openTyreHub({ vehicleId: v.id });
-    if (q === 'burn') app.burnTyres(v.id);
     if (q === 'qr') printLabels([{ kind: 'car', id: v.id, title: v.name, subtitle: `${modelInfo(v.model).label}${v.plate ? ` · ${v.plate}` : ''}`, kicker: 'FAHRZEUG', color: v.color }], { title: 'QR-Code: Fahrzeug' });
     if (q === 'move') {
       const slots = store.objects.filter((o) => o.type === 'slot');
@@ -541,7 +536,7 @@ export async function openCockpit(id, { tab = 'tasks', query = '' } = {}) {
         await reload();
       } else if (ds.taskplan || ds.taskpause || ds.tasklift) {
         const t = data.tasks.find((x) => x.id === Number(ds.taskplan || ds.taskpause || ds.tasklift));
-        if (t) (ds.taskpause ? openPauseDialog : ds.tasklift ? openLiftPlan : openTaskPlan)({ ...t, vehicle_name: data.vehicle.name }, () => reload());
+        if (t) (ds.taskpause ? openPauseDialog : openTaskPlan)({ ...t, vehicle_name: data.vehicle.name }, () => reload());
       } else if ('pdf' in ds) {
         track(`Wartungshistorie als PDF exportiert: ${data.vehicle.name}`, 'export');
         window.open(`/api/vehicles/${id}/history.pdf`, '_blank', 'noopener');

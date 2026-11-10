@@ -807,7 +807,7 @@ export class HallMap {
         // v5.4: laufende Bühnen-Reservierung (wer, was, bis wann)
         if (kind === 'lift') {
           const b = ((store.whiteboard && store.whiteboard.liftsNow) || []).find((x) => x.lift_slot === o.id);
-          if (b) this.label(o.x + o.w / 2, o.y + o.h + 0.22, `🔧 ${b.assigned_name || 'offen'} · ${b.vehicle_name || b.title} · bis ${b.lift_to.slice(11)}`, { size: 9, color: '#04131a', bg: b.assigned_color || '#22d3ee', weight: 800, font: 'display' });
+          if (b) this.label(o.x + o.w / 2, o.y + o.h + 0.22, `🔧 ${b.assigned_name || 'offen'} · ${b.vehicle_name || b.title} · bis ${b.lift_bis.slice(8, 10)}.${b.lift_bis.slice(5, 7)}.`, { size: 9, color: '#04131a', bg: b.assigned_color || '#22d3ee', weight: 800, font: 'display' });
         }
         break;
       }

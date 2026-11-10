@@ -6,7 +6,7 @@
  *   - "Arbeit pausieren / Nicht fertig": was ist noch zu tun + geschätzte Fertigstellung
  */
 import { store, app, canEdit, refreshWhiteboard, refreshVehicles } from './state.js';
-import { get, post, put } from './api.js';
+import { get, post, put, patch } from './api.js';
 import { html, setHTML, el, on, icon, toast, toastError, haptic, fmtDate, openModal, chooseDialog, initials, formData, since } from './ui.js';
 import { track } from './track.js';
 
@@ -25,16 +25,68 @@ function dueLabel(d) {
   return `bis ${fmtDate(d, { short: true })}`;
 }
 
+const addIso = (d, n) => iso(new Date(Date.parse(`${d}T12:00:00`) + n * 86400000));
+/** Bühnen-Reservierung ist tageweise: Von = Tag von lift_from, Bis = letzter belegter Tag (lift_to ist der Folgetag 00:00) */
+export const liftDays = (t) => {
+  const von = t.lift_from.slice(0, 10);
+  const end = t.lift_to.slice(0, 10);
+  const bis = t.lift_to.slice(11) === '00:00' ? addIso(end, -1) : end;   // shortcut: alte Reservierungen mit Uhrzeit zählen als ganze Tage
+  return [von, bis < von ? von : bis];
+};
+export const liftRangeLabel = (t) => { const [a, b] = liftDays(t); return a === b ? fmtDate(a, { short: true }) : `${fmtDate(a, { short: true })} bis ${fmtDate(b, { short: true })}`; };
+
+/**
+ * v5.5: Fälligkeit mit minimalem Klickaufwand: Klick aufs Datum = Datumsauswahl, +1 Tag, +1 Woche.
+ * Speichert sofort per PATCH und tauscht nur dieses Element aus (kein Neuladen).
+ */
+export function dueControl(t) {
+  const n = t.target_date ? dayDiff(t.target_date) : null;
+  const cls = n === null ? 'task-date' : n < 0 ? 'task-late' : n <= 2 ? 'task-soon' : 'task-date';
+  if (!canEdit() || t.status === 'done') {
+    return t.target_date ? html`<span class="chip !text-[10px] ${cls}" title="Fällig am ${fmtDate(t.target_date)}">${icon('calendar', 'w-3 h-3')} ${dueLabel(t.target_date)}</span>` : '';
+  }
+  return html`<span class="due-ctl relative inline-flex items-center gap-1" data-duectl="${t.id}" data-due-date="${t.target_date || ''}">
+    <button type="button" class="chip chip-btn !text-[10px] ${cls}" data-due-pick title="${t.target_date ? `Fällig am ${fmtDate(t.target_date)}. Klicken zum Ändern` : 'Fälligkeitsdatum wählen'}">${icon('calendar', 'w-3 h-3')} ${t.target_date ? dueLabel(t.target_date) : 'Datum wählen'}</button>
+    <button type="button" class="chip chip-btn !text-[10px]" data-due-shift="1" title="Einen Tag später (mindestens morgen)">+1 Tag</button>
+    <button type="button" class="chip chip-btn !text-[10px]" data-due-shift="7" title="Eine Woche später">+1 Woche</button>
+    <input type="date" data-due-input value="${t.target_date || ''}" tabindex="-1" aria-hidden="true" style="position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none">
+  </span>`;
+}
+
+async function saveDue(ctl, date) {
+  try {
+    const row = await patch(`/tasks/${ctl.dataset.duectl}/due-date`, { date });
+    haptic(8);
+    ctl.replaceWith(el(dueControl(row)));
+    toast(date ? `Fällig: ${fmtDate(date)}` : 'Fälligkeit entfernt.', 'ok', 2200);
+    refreshWhiteboard().catch(() => {});
+  } catch (err) { toastError(err); }
+}
+// Ein Handler für alle Stellen (Cockpit, Hallen-Board, Event-To-Dos, Whiteboard, Kalender)
+document.addEventListener('click', (e) => {
+  const ctl = e.target.closest && e.target.closest('[data-duectl]');
+  if (!ctl) return;
+  if (e.target.closest('[data-due-pick]')) {
+    const inp = ctl.querySelector('[data-due-input]');
+    try { inp.showPicker(); } catch { inp.focus(); inp.click(); }
+  }
+  const sh = e.target.closest('[data-due-shift]');
+  if (sh) { const cur = ctl.dataset.dueDate; saveDue(ctl, addIso(cur && cur > todayIso() ? cur : todayIso(), Number(sh.dataset.dueShift))); }
+});
+document.addEventListener('change', (e) => {
+  const inp = e.target.closest && e.target.closest('[data-due-input]');
+  if (inp && inp.value) saveDue(inp.closest('[data-duectl]'), inp.value);
+});
+
 /** Kleine Chips für Zuständig / Zeit / Zieldatum / Pause (Whiteboard, Cockpit, Board) */
 export function taskMetaChips(t, { showAssignee = true } = {}) {
-  const n = t.target_date ? dayDiff(t.target_date) : null;
   return html`
     ${showAssignee ? (t.assigned_user && t.assigned_name
       ? html`<span class="chip !text-[10px] task-who" title="Zuständig: ${t.assigned_name}"><span class="w-3.5 h-3.5 rounded-full grid place-items-center text-[7px] font-bold text-black" style="background:${t.assigned_color || '#94a3b8'}">${initials(t.assigned_name)}</span>${t.assigned_name}</span>`
       : html`<span class="chip !text-[10px] task-pool" title="Noch niemandem zugewiesen">${icon('users', 'w-3 h-3')} offen für alle</span>`) : ''}
     ${t.estimated_hours ? html`<span class="chip !text-[10px] task-hours">${icon('clock', 'w-3 h-3')} ca. ${fmtHours(t.estimated_hours)}</span>` : ''}
-    ${t.target_date ? html`<span class="chip !text-[10px] ${n < 0 ? 'task-late' : n <= 2 ? 'task-soon' : 'task-date'}" title="Zieldatum ${fmtDate(t.target_date)}">${icon('calendar', 'w-3 h-3')} ${dueLabel(t.target_date)}</span>` : ''}
-    ${t.lift_slot !== null && t.lift_slot !== undefined && t.lift_from ? html`<span class="chip !text-[10px] !text-cyan-200 !border-cyan-400/40" title="Hebebühne reserviert">${icon('layers', 'w-3 h-3')} ${liftName(t.lift_slot)} · ${fmtDate(t.lift_from.slice(0, 10), { short: true })} ${t.lift_from.slice(11)}–${t.lift_to.slice(11)}</span>` : ''}
+    ${dueControl(t)}
+    ${t.lift_slot !== null && t.lift_slot !== undefined && t.lift_from ? html`<span class="chip !text-[10px] !text-cyan-200 !border-cyan-400/40" title="Hebebühne reserviert">${icon('layers', 'w-3 h-3')} ${liftName(t.lift_slot)} · ${liftRangeLabel(t)}</span>` : ''}
     ${t.repeat_days ? html`<span class="chip !text-[10px]" title="Wiederkehrend">${icon('refresh', 'w-3 h-3')} ${REPEATS[t.repeat_days] || `alle ${t.repeat_days} Tage`}</span>` : ''}
     ${t.vehicle_id && t.event_critical === 0 ? html`<span class="chip !text-[10px] !text-slate-400" title="Blockiert die Event-Abfahrt nicht">nicht event-kritisch</span>` : ''}`;
 }
@@ -94,35 +146,23 @@ export function openPauseDialog(task, onDone) {
 export const HALL_CATEGORIES = { kompressor: 'Kompressor & Druckluft', elektrik: 'Elektrik & Beleuchtung', buehne: 'Hebebühnen-Prüfung/Wartung', ordnung: 'Ordnung & Entsorgung', allgemein: 'Allgemeines' };
 export const REPEATS = { 7: 'jede Woche', 14: 'alle 2 Wochen', 28: 'alle 4 Wochen', 30: 'jeden Monat', 91: 'jedes Quartal', 182: 'halbjährlich', 365: 'jährlich' };
 export const liftList = () => store.objects.filter((o) => o.type === 'slot' && o.props && o.props.kind === 'lift');
-export const liftName = (id) => (Number(id) === 0 ? 'Bühne egal' : (liftList().find((l) => l.id === Number(id)) || {}).label || 'Bühne');
-const pad = (n) => String(n).padStart(2, '0');
-const localDt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+export const liftName = (id) => (Number(id) === 0 ? 'Beliebige Bühne' : (liftList().find((l) => l.id === Number(id)) || {}).label || 'Bühne');
 export const subtasksOf = (t) => { try { return JSON.parse(t.subtasks || '[]') || []; } catch { return []; } };
-
-/** Bestehende Aufgabe nachträglich auf eine Hebebühne buchen: Editor mit vorausgewählter Bühne. */
-export function openLiftPlan(task, onDone) {
-  if (!liftList().length) { toast('Im Hallenplan ist noch keine Hebebühne angelegt.', 'warn'); return; }
-  openTaskPlan(task.lift_slot !== null && task.lift_slot !== undefined ? task : { ...task, lift_slot: liftList()[0].id }, onDone);
-}
 
 /**
  * Editor für jede Aufgabe (Auto, Halle, Event). task.id fehlt = neu anlegen.
- * opts.pickVehicle: Fahrzeug wählbar (z. B. Reservierung aus dem Kalender)
  */
-export function openTaskPlan(task, onDone, { pickVehicle = false } = {}) {
+export function openTaskPlan(task, onDone) {
   const people = (store.users || []).filter((u) => u.role !== 'gast');
   const isNew = !task.id;
   const kind = () => (task.event_id ? 'event' : task.vehicle_id ? 'vehicle' : 'hall');
   const subs = subtasksOf(task);
   const lifts = liftList();
-  const from = task.lift_from ? new Date(task.lift_from) : null;
-  const dur = task.lift_from && task.lift_to ? (new Date(task.lift_to) - new Date(task.lift_from)) / 3600000 : (task.estimated_hours || 2);
+  const [liftVon, liftBis] = task.lift_from && task.lift_to ? liftDays(task) : [todayIso(), todayIso()];
   const body = el(html`<div>
     <form class="space-y-3" data-form>
       <label class="block"><span class="label">Aufgabe</span><input class="input" name="title" required value="${task.title || ''}" placeholder="z. B. Winterräder montieren"></label>
-      ${task.vehicle_name && !pickVehicle ? html`<div class="text-xs text-cyan-300 -mt-1">${task.vehicle_name}</div>` : ''}
-      ${pickVehicle ? html`<label class="block"><span class="label">Fahrzeug</span><select class="select" name="vehicle_id">
-        <option value="">Halle (kein Auto)</option>${store.vehicles.map((v) => html`<option value="${v.id}" ${task.vehicle_id === v.id ? 'selected' : ''}>${v.name}</option>`)}</select></label>` : ''}
+      ${task.vehicle_name ? html`<div class="text-xs text-cyan-300 -mt-1">${task.vehicle_name}</div>` : ''}
       <label class="block"><span class="label">Details</span><input class="input text-sm" name="description" value="${task.description || ''}" placeholder="optional"></label>
       <div><span class="label">Zuständig</span>
         <div class="flex flex-wrap gap-1.5" data-who>
@@ -135,20 +175,19 @@ export function openTaskPlan(task, onDone, { pickVehicle = false } = {}) {
         <label><span class="label">${kind() === 'hall' ? 'Fällig am' : 'Zieldatum'}</span><input class="input" type="date" name="target_date" value="${task.target_date || ''}"></label>
       </div>
       <div class="flex flex-wrap gap-1.5">${[[0.5, '30 min'], [1, '1 Std.'], [2, '2 Std.'], [4, 'halber Tag'], [8, 'ganzer Tag']].map(([h, l]) => html`<button type="button" class="chip chip-btn" data-h="${h}">${l}</button>`)}</div>
-      ${kind() === 'vehicle' || pickVehicle ? html`<label class="flex items-start gap-2 text-sm text-slate-300" data-critwrap>
+      ${kind() === 'vehicle' ? html`<label class="flex items-start gap-2 text-sm text-slate-300" data-critwrap>
         <input type="checkbox" class="check !w-4 !h-4 mt-0.5" name="event_critical" ${task.event_critical === 0 ? '' : 'checked'}>
         <span>Event-kritisch / vor Abfahrt zwingend erforderlich<br><small class="text-slate-500">Ohne Haken blockiert die Aufgabe die Event-Freigabe nicht (z. B. Kratzer lackieren).</small></span></label>` : ''}
-      ${kind() === 'hall' && !pickVehicle ? html`<div class="grid grid-cols-2 gap-3">
+      ${kind() === 'hall' ? html`<div class="grid grid-cols-2 gap-3">
         <label><span class="label">Kategorie</span><select class="select" name="category">${Object.entries(HALL_CATEGORIES).map(([k, l]) => html`<option value="${k}" ${(task.category || 'allgemein') === k ? 'selected' : ''}>${l}</option>`)}</select></label>
         <label><span class="label">Wiederholen</span><select class="select" name="repeat_days"><option value="">einmalig</option>${Object.entries(REPEATS).map(([d, l]) => html`<option value="${d}" ${Number(task.repeat_days) === Number(d) ? 'selected' : ''}>${l}</option>`)}</select></label>
       </div>` : ''}
       ${lifts.length ? html`<div class="card p-3 space-y-2">
         <label class="flex items-center gap-2 text-sm text-white"><input type="checkbox" class="check !w-4 !h-4" name="lift_on" ${task.lift_slot !== null && task.lift_slot !== undefined ? 'checked' : ''}> ${icon('layers', 'w-3.5 h-3.5 text-cyan-300')} Benötigt Hebebühne</label>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" data-liftfields>
-          <label class="col-span-2 sm:col-span-1"><span class="label">Bühne</span><select class="select" name="lift_slot">${lifts.map((l) => html`<option value="${l.id}" ${task.lift_slot === l.id ? 'selected' : ''}>${l.label || l.code}</option>`)}<option value="0" ${task.lift_slot === 0 ? 'selected' : ''}>Egal / beliebig</option></select></label>
-          <label><span class="label">Datum</span><input class="input" type="date" name="lift_date" value="${from ? localDt(from).slice(0, 10) : todayIso()}"></label>
-          <label><span class="label">Start</span><input class="input" type="time" name="lift_time" value="${from ? localDt(from).slice(11) : '09:00'}" step="900"></label>
-          <label><span class="label">Dauer (Std.)</span><input class="input" type="number" step="0.25" min="0.25" inputmode="decimal" name="lift_hours" value="${Math.round(dur * 100) / 100}"></label>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" data-liftfields>
+          <label class="col-span-2 sm:col-span-1"><span class="label">Bühne</span><select class="select" name="lift_slot">${lifts.map((l) => html`<option value="${l.id}" ${task.lift_slot === l.id ? 'selected' : ''}>${l.label || l.code}</option>`)}<option value="0" ${task.lift_slot === 0 ? 'selected' : ''}>Beliebige Bühne</option></select></label>
+          <label><span class="label">Von</span><input class="input" type="date" name="lift_von" value="${liftVon}"></label>
+          <label><span class="label">Bis</span><input class="input" type="date" name="lift_bis" value="${liftBis}" min="${liftVon}"></label>
         </div></div>` : ''}
       <label class="block"><span class="label">Unteraufgaben (eine pro Zeile)</span>
         <textarea class="input text-sm" name="subtasks" rows="${Math.min(8, Math.max(3, subs.length + 1))}" placeholder="Räder aus Regal holen&#10;Neu wuchten&#10;Montieren &amp; Drehmoment 120 Nm prüfen">${subs.map((s) => s.t).join('\n')}</textarea></label>
@@ -156,13 +195,23 @@ export function openTaskPlan(task, onDone, { pickVehicle = false } = {}) {
     </form></div>`);
   let uid = task.assigned_user || '';
   const m = openModal({
-    title: isNew ? 'Neue Aufgabe' : 'Aufgabe planen', subtitle: 'Wer, wie lange, bis wann, Bühne, Unteraufgaben', size: 'md', iconName: 'list', body,
+    title: isNew ? 'Neue Aufgabe' : 'Aufgabe planen', subtitle: 'Wer, wie lange, bis wann, Bühne (in Tagen), Unteraufgaben', size: 'md', iconName: 'list', body,
     footer: html`<button class="btn" data-close>Abbrechen</button><button class="btn btn-primary" data-save>${icon('check')} ${isNew ? 'Anlegen' : 'Speichern'}</button>`
   });
   const f = body.querySelector('[data-form]');
   const liftToggle = () => { const box = body.querySelector('[data-liftfields]'); if (box) box.classList.toggle('hidden', !f.lift_on.checked); };
   liftToggle();
   if (f.lift_on) f.lift_on.addEventListener('change', liftToggle);
+  if (f.lift_von) {
+    // gleicher Tag = 1 Tag geblockt: Bis zieht mit, solange es nicht schon bewusst länger gewählt wurde
+    let vonAlt = f.lift_von.value;
+    f.lift_von.addEventListener('change', () => {
+      if (!f.lift_von.value) return;
+      if (!f.lift_bis.value || f.lift_bis.value <= vonAlt || f.lift_bis.value < f.lift_von.value) f.lift_bis.value = f.lift_von.value;
+      f.lift_bis.min = f.lift_von.value;
+      vonAlt = f.lift_von.value;
+    });
+  }
   on(body, 'click', '[data-uid]', (_e, b) => { uid = b.dataset.uid; body.querySelectorAll('[data-uid]').forEach((x) => x.classList.toggle('on', x === b)); });
   on(body, 'click', '[data-h]', (_e, b) => { f.estimated_hours.value = b.dataset.h; });
   if (isNew) setTimeout(() => f.title.focus(), 60);
@@ -179,18 +228,17 @@ export function openTaskPlan(task, onDone, { pickVehicle = false } = {}) {
     };
     if (f.event_critical) payload.event_critical = f.event_critical.checked;
     if (f.category) { payload.category = d.category; payload.repeat_days = d.repeat_days || null; }
-    if (pickVehicle) payload.vehicle_id = d.vehicle_id ? Number(d.vehicle_id) : null;
     if (f.lift_on && f.lift_on.checked) {
-      const start = new Date(`${d.lift_date}T${d.lift_time || '09:00'}`);
-      const hours = Number(num(d.lift_hours)) || 1;
-      if (Number.isNaN(start.getTime())) { toast('Bitte Datum und Startzeit für die Bühne angeben.', 'warn'); return; }
-      Object.assign(payload, { lift_slot: Number(d.lift_slot), lift_from: localDt(start), lift_to: localDt(new Date(start.getTime() + hours * 3600000)) });
+      if (!d.lift_von || !d.lift_bis) { toast('Bitte Von- und Bis-Datum für die Bühne angeben.', 'warn'); return; }
+      if (d.lift_bis < d.lift_von) { toast('Das Bis-Datum liegt vor dem Von-Datum.', 'warn'); return; }
+      // ganze Tage: von 00:00 des ersten bis 00:00 des Tages nach dem letzten Tag (Ende exklusiv)
+      Object.assign(payload, { lift_slot: Number(d.lift_slot), lift_from: `${d.lift_von}T00:00`, lift_to: `${addIso(d.lift_bis, 1)}T00:00` });
     } else payload.lift_slot = null;
     try {
-      const res = isNew ? await post('/tasks', { ...payload, vehicle_id: payload.vehicle_id !== undefined ? payload.vehicle_id : task.vehicle_id || null, event_id: task.event_id || null })
+      const res = isNew ? await post('/tasks', { ...payload, vehicle_id: task.vehicle_id || null, event_id: task.event_id || null })
         : await put(`/tasks/${task.id}`, payload);
       m.close();
-      if (res.lift_conflict) toast(`Bühnen-Konflikt! ${liftName(res.lift_slot)} ist zu der Zeit schon belegt. Siehe Kalender.`, 'warn', 6000);
+      if (res.lift_conflict) toast(`Bühnen-Konflikt! ${liftName(res.lift_slot)} ist an diesen Tagen schon belegt. Siehe Kalender.`, 'warn', 6000);
       else toast(isNew ? 'Aufgabe angelegt.' : 'Gespeichert.', 'ok');
       refreshWhiteboard().catch(() => {});
       if (onDone) onDone(res);

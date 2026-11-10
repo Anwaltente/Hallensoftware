@@ -116,7 +116,7 @@ const NOUN = {
 };
 const VERB = {
   done: 'erledigt', reopen: 'wieder geöffnet', borrow: 'genommen', return: 'zurückgegeben', lend: 'verliehen', back: 'wieder in der Halle',
-  acquire: 'gekauft', move: 'umgeparkt', stop: 'beendet', current: 'als aktuell markiert', burn: 'abgefahren gebucht', unburn: 'zurückgebucht',
+  acquire: 'gekauft', move: 'umgeparkt', stop: 'beendet', current: 'als aktuell markiert',
   dispose: 'entsorgt', undo: 'rückgängig gemacht', bought: 'gekauft', remove: 'entfernt', 'return-all': 'alles zurückgeräumt',
   'stock-in': 'eingelagert', use: 'entnommen', pause: 'pausiert', assign: 'zugewiesen', regenerate: 'neu erzeugt', order: 'sortiert',
   'quick-specs': 'Quick Specs gespeichert', specs: 'Daten gespeichert', documents: 'Dokument hochgeladen', commit: 'übernommen',

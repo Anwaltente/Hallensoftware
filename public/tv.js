@@ -173,7 +173,7 @@ function hallSvg() {
         }).join('')
       : occ.length ? `<text x="${s.x + s.w / 2}" y="${s.y + s.h / 2}" text-anchor="middle" font-size="0.32" fill="#fff" font-family="IBM Plex Sans, Arial, sans-serif" font-weight="600">${esc(name.length > 24 ? `${name.slice(0, 23)}…` : name)}</text>`
         : `<text x="${s.x + s.w / 2}" y="${s.y + s.h / 2}" text-anchor="middle" font-size="0.4" fill="#22c55e" font-family="Chakra Petch, Arial, sans-serif" font-weight="700">FREI</text>`}
-      ${(() => { const b = s.kind === 'lift' && (data.liftsNow || []).find((x) => x.lift_slot === s.id); return b ? `<text x="${s.x + s.w / 2}" y="${s.y + s.h - 0.3}" text-anchor="middle" font-size="0.26" fill="#22d3ee" font-family="Chakra Petch, Arial, sans-serif" font-weight="700">🔧 ${esc(b.assigned_name || 'offen')} · ${esc(b.vehicle_name || b.title)} · bis ${esc(b.lift_to.slice(11))}</text>` : ''; })()}
+      ${(() => { const b = s.kind === 'lift' && (data.liftsNow || []).find((x) => x.lift_slot === s.id); return b ? `<text x="${s.x + s.w / 2}" y="${s.y + s.h - 0.3}" text-anchor="middle" font-size="0.26" fill="#22d3ee" font-family="Chakra Petch, Arial, sans-serif" font-weight="700">🔧 ${esc(b.assigned_name || 'offen')} · ${esc(b.vehicle_name || b.title)} · bis ${esc(`${b.lift_bis.slice(8, 10)}.${b.lift_bis.slice(5, 7)}.`)}</text>` : ''; })()}
       ${s.blocksLane && occ.length ? `<text x="${s.x + s.w / 2}" y="${s.y + s.h - 0.3}" text-anchor="middle" font-size="0.28" fill="#facc15" font-family="Chakra Petch, Arial, sans-serif" font-weight="700">SCHNEISE BLOCKIERT</text>` : ''}
     </g>`;
   }).join('');

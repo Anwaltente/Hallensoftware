@@ -2,7 +2,6 @@
  * Drift-Tyre Hub (Reifenlager & Räder-Manager)
  * - Reifen, Felgen und Kompletträder getrennt verwalten
  * - Virtuelles Montieren / Abziehen
- * - 1-Klick "-2 Burned" mit Rauch-Animation und Rückgängig
  */
 import { store, app, canEdit, refreshVehicles } from './state.js';
 import { get, post, put, del, ApiError } from './api.js';
@@ -44,37 +43,12 @@ function stackSvg(count, { worn = false } = {}) {
   return raw(`<svg viewBox="0 0 80 120" width="64" height="96">${g}${count > 8 ? `<text x="40" y="12" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Chakra Petch">+${count - 8}</text>` : ''}</svg>`);
 }
 
-/** Rauch-Animation für "Burned". */
-function burnFx(count) {
-  const node = el(html`<div class="burn-fx"><div class="burn-smoke">${Array.from({ length: 9 }, (_, i) => html`<span style="--i:${i}"></span>`)}</div>
-    <div class="burn-text">-${count} BURNED</div></div>`);
-  document.body.appendChild(node);
-  setTimeout(() => node.remove(), 1700);
-}
-
-/* ---------------- Burner (auch vom Cockpit/Selektionsleiste nutzbar) ---------------- */
-export async function burnTyres(vehicleId = null, { onDone = null } = {}) {
-  try {
-    const res = await post('/tyres/burn', { vehicle_id: vehicleId, count: 2 });
-    haptic([30, 30, 60]);
-    burnFx(res.burned.length);
-    const rims = Object.fromEntries(res.burned.map((b) => [b.id, b.rim_id]));
-    toast(`${res.burned.length} Reifen abgefahren (${res.burned[0].dimension}). Noch ${res.remaining} Driftreifen aktiv.${res.partial ? ' Bestand reicht nicht für 2!' : ''}`,
-      res.remaining < 4 ? 'warn' : 'ok', 6500,
-      { label: 'Rückgängig', onClick: async () => { await post('/tyres/unburn', { ids: res.burned.map((b) => b.id), rims }); toast('Zurückgenommen.'); onDone && onDone(); } });
-    onDone && onDone(res.hub);
-    return res;
-  } catch (err) { toastError(err); return null; }
-}
-app.burnTyres = burnTyres;
-
 /* ====================================================================== */
 export async function openTyreHub({ vehicleId = null } = {}) {
   let data;
   try { data = await get('/tyrehub'); } catch (err) { toastError(err); return; }
   let tab = 'tyres';
   let filter = 'all';
-  let burnVehicle = vehicleId || '';
 
   const body = el(html`<div class="-mx-5 -my-4"><div data-head class="px-5 pt-4 pb-4"></div>
     <nav class="tabs px-3 border-b border-white/10 sticky top-0 z-10 bg-[#121821]" data-tabs></nav>
@@ -104,16 +78,7 @@ export async function openTyreHub({ vehicleId = null } = {}) {
           ${kpi('Straße', s.street, 'text-sky-300', 'gute Reifen')}
           ${kpi('Abgefahren', s.burned, 'text-slate-400', 'zur Entsorgung')}
         </div>
-      </div>
-      ${canEdit() ? html`
-        <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-orange-500/30 bg-gradient-to-r from-orange-500/10 to-transparent p-3">
-          <button class="btn burn-btn" data-burn>${icon('flame')} -2 BURNED</button>
-          <select class="select !w-auto !py-1.5 text-sm" data-burnveh>
-            <option value="">Allgemeiner Drift-Bestand</option>
-            ${store.vehicles.map((v) => html`<option value="${v.id}" ${String(burnVehicle) === String(v.id) ? 'selected' : ''}>${v.name}</option>`)}
-          </select>
-          <span class="text-xs text-slate-400">Zieht 2 Driftreifen ab (zuerst die montierten des Autos) und schiebt sie zu „Abgefahren“.</span>
-        </div>` : ''}`);
+      </div>`);
   }
 
   function renderTabs() {
@@ -211,11 +176,6 @@ export async function openTyreHub({ vehicleId = null } = {}) {
 
   /* ---------- Aktionen ---------- */
   on(tabsEl, 'click', '[data-tab]', (_e, b) => { tab = b.dataset.tab; render(); });
-  on(head, 'change', '[data-burnveh]', (_e, s) => { burnVehicle = s.value; });
-  on(head, 'click', '[data-burn]', async () => {
-    await burnTyres(burnVehicle ? Number(burnVehicle) : null, { onDone: (hub) => reload(hub) });
-  });
-
   on(content, 'click', 'button, [data-filter]', async (_e, b) => {
     const d = b.dataset;
     try {

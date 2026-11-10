@@ -2,6 +2,7 @@
  * v5.4: Hebebühnen-Reservierung
  * Eine Aufgabe reserviert eine Bühne über tasks.lift_slot (layout_objects.id, 0 = egal) und lift_from/lift_to
  * (lokale Zeit 'JJJJ-MM-TTTHH:MM', Strings sind direkt vergleichbar).
+ * Seit v5.5 reservieren Aufgaben ganze Tage: lift_from = Von-Tag 00:00, lift_to = Tag nach dem Bis-Tag 00:00 (Ende exklusiv).
  */
 const { db } = require('../db');
 const { parseJSON, TZ } = require('./util');
@@ -18,6 +19,14 @@ function nowLocal() {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
     .format(new Date()).replace(' ', 'T');
 }
+
+const addDay = (d, n) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+/** Letzter belegter Tag: Reservierungen sind ganze Tage, lift_to ist der Folgetag 00:00 (alte Einträge mit Uhrzeit zählen bis zum Tag ihres Endes) */
+const lastDay = (b) => {
+  const von = b.lift_from.slice(0, 10);
+  const bis = b.lift_to.slice(11) === '00:00' ? addDay(b.lift_to.slice(0, 10), -1) : b.lift_to.slice(0, 10);
+  return bis < von ? von : bis;
+};
 
 const overlap = (a, b) => a.lift_from < b.lift_to && b.lift_from < a.lift_to;
 
@@ -53,7 +62,7 @@ function liftCalendar(from, to) {
   const all = db.prepare(BOOKING_SELECT).all();
   const conflicts = conflictIds(all, lifts.length);
   const bookings = all.filter((b) => b.lift_from < `${to}T24:00` && b.lift_to > `${from}T00:00`)
-    .map((b) => ({ ...b, conflict: conflicts.has(b.id) }))
+    .map((b) => ({ ...b, lift_bis: lastDay(b), conflict: conflicts.has(b.id) }))
     .sort((a, b) => a.lift_from.localeCompare(b.lift_from));
   return { lifts, bookings, now: nowLocal() };
 }
@@ -66,7 +75,7 @@ function liftsNow() {
 
 const hasConflict = (taskId) => liftCalendar('0000-01-01', '9999-12-31').bookings.some((b) => b.id === Number(taskId) && b.conflict);
 
-module.exports = { listLifts, liftCalendar, liftsNow, hasConflict, conflictIds, nowLocal };
+module.exports = { listLifts, liftCalendar, liftsNow, hasConflict, conflictIds, nowLocal, lastDay };
 
 // Selbsttest: node server/lib/lifts.js --selftest
 if (require.main === module && process.argv.includes('--selftest')) {
@@ -76,6 +85,12 @@ if (require.main === module && process.argv.includes('--selftest')) {
   assert.deepStrictEqual([...conflictIds([b(1, 5, '08:00', '10:00'), b(2, 5, '10:00', '11:00')], 2)], []);   // direkt anschließend = ok
   assert.deepStrictEqual([...conflictIds([b(1, 5, '08:00', '10:00'), b(2, 6, '08:00', '10:00'), b(3, 0, '09:00', '09:30')], 2)], [3]);
   assert.deepStrictEqual([...conflictIds([b(1, 5, '08:00', '10:00'), b(3, 0, '09:00', '09:30')], 2)], []);
+  // v5.5: ganze Tage. Sa bis Mo (to = Di 00:00) kollidiert mit Mo allein, nicht mit Di
+  const d = (id, slot, von, bisExkl) => ({ id, lift_slot: slot, lift_from: `${von}T00:00`, lift_to: `${bisExkl}T00:00` });
+  assert.deepStrictEqual([...conflictIds([d(1, 5, '2026-11-14', '2026-11-17'), d(2, 5, '2026-11-16', '2026-11-17'), d(3, 5, '2026-11-17', '2026-11-18')], 2)], [1, 2]);
+  assert.deepStrictEqual([...conflictIds([d(1, 5, '2026-11-14', '2026-11-15'), d(2, 5, '2026-11-14', '2026-11-15')], 2)], [1, 2]);   // gleicher Tag = Konflikt
+  assert.strictEqual(lastDay(d(1, 5, '2026-11-14', '2026-11-17')), '2026-11-16');
+  assert.strictEqual(lastDay({ lift_from: '2026-11-14T09:00', lift_to: '2026-11-14T11:00' }), '2026-11-14');   // alte Uhrzeit-Reservierung
   console.log('lifts selftest ok');
   process.exit(0);
 }

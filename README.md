@@ -46,7 +46,6 @@ Im gleichen WLAN ist die App auch vom Handy erreichbar: `http://<IP-des-Rechners
 
 * **Reifenlager (Drift-Tyre Hub):** Reifenstapel rechts neben Regal B anklicken. Reifen, Felgen und Kompletträder getrennt,
   virtuelles Montieren und Abziehen (mit Zollgrößen-Prüfung), Einstufung Drift oder Straße, Zustand Neu / Training / Burner.
-  **-2 Burned** im Reifenlager, im Fahrzeug-Cockpit und in der Auswahlleiste auf der Map (Handy) bucht zwei Driftreifen ab, mit Rückgängig.
 * **QR-Codes:** "QR-Code drucken" im Cockpit, an jeder Eurobox und "Alle Box-Labels drucken" in der Regalansicht.
   Labels 62 × 29 mm (Etikettendrucker) oder groß (A6). Scanner über das Kamera-Symbol oben.
   Die Codes enthalten einen Link (`/?scan=box-12`), daher funktioniert auch die normale Handy-Kamera.
@@ -166,6 +165,13 @@ Bestehende Datenbanken werden beim Start automatisch migriert (neue Tabellen, ne
 * **Blueprint-Layer** einzeln ein-/ausblenden: Druckluft, 230 V, 400 V, Sicherungskasten/Unterverteiler, Daten.
 
 Details: `AENDERUNGEN-v5.2.md`.
+
+
+## Neu in Version 5.5
+
+* **Bühne in der Aufgabe, in Tagen:** „Benötigt Hebebühne“ mit Bühne 1 / 2 / beliebig und Von/Bis als Datum, kein eigener Reservieren-Knopf mehr. Kalender mit Tages-Blöcken und Konfliktwarnung.
+* **Fälligkeit schnell ändern:** Datum anklicken, +1 Tag, +1 Woche (`PATCH /api/tasks/:id/due-date`), ohne Neuladen.
+* **„-2 Burned“ entfernt.** Details: `AENDERUNGEN-v5.5.md`.
 
 ## Neu in Version 5.3
 
@@ -358,7 +364,6 @@ Alle Endpunkte liegen unter `/api`. Lesen ab Rolle Gast, Schreiben ab Schrauber,
 | POST    | `/devices/:id/action`                  | `{ action: "on" \| "off" \| "toggle" }`       |
 | GET     | `/devices/:id/snapshot`                | Webcam-Standbild (Proxy)                      |
 | GET     | `/tyrehub`                             | Reifenlager komplett                          |
-| POST    | `/tyres/burn`                          | `{ vehicle_id, count }` Driftreifen abbuchen  |
 | POST    | `/tyres/:id/mount` / `unmount`         | Komplettrad bauen / trennen                   |
 | POST    | `/supplies/:id/adjust`                 | `{ delta }` Vorrat ändern                     |
 | GET/POST| `/vehicles/:id/setups`, `/setups`      | Setup-Sheets                                  |

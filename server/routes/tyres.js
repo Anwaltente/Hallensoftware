@@ -1,13 +1,12 @@
 /**
- * Drift-Tyre Hub: Reifen, Felgen, Kompletträder, virtuelles Montieren und die 1-Klick-Burner-Funktion.
+ * Drift-Tyre Hub: Reifen, Felgen, Kompletträder, virtuelles Montieren.
  *
  *   GET  /api/tyrehub?vehicleId=          Gesamtübersicht (Reifen, Felgen, Statistik)
  *   POST /api/tyres            { qty, ... } legt qty einzelne Reifen an
  *   POST /api/rims             { qty, ... } legt qty einzelne Felgen an
  *   POST /api/tyres/:id/mount  { rim_id }   Reifen auf Felge = Komplettrad
  *   POST /api/tyres/:id/unmount { to }      Reifen abziehen (to: 'lager' | 'abgefahren')
- *   POST /api/tyres/burn       { vehicle_id, count = 2 }  "-2 Burned"
- *   POST /api/tyres/unburn     { ids }      Rückgängig
+ *   POST /api/tyres/unburn     { ids }      Altreifen zurück in den Bestand
  *   POST /api/tyres/dispose    { ids } | { all: true }  Altreifen austragen (nur Status abgefahren)
  */
 const express = require('express');
@@ -140,29 +139,7 @@ router.post('/tyres/:id/unmount', (req, res) => {
   res.json(hub());
 });
 
-/* ---------------- 1-Klick-Burner ---------------- */
-router.post('/tyres/burn', (req, res) => {
-  const vehicleId = toIntOrNull(req.body.vehicle_id);
-  const count = Math.min(8, Math.max(1, toIntOrNull(req.body.count) || 2));
-  // Reihenfolge: montierte Driftreifen des Autos (die wurden gefahren) > lose des Autos > allgemeiner Drift-Bestand
-  const candidates = db.prepare(`SELECT * FROM tyres WHERE status = 'aktiv' AND class = 'drift'
-      AND (vehicle_id = ? OR vehicle_id IS NULL)
-    ORDER BY CASE WHEN vehicle_id = ? AND rim_id IS NOT NULL THEN 0 WHEN vehicle_id = ? THEN 1 WHEN rim_id IS NULL THEN 2 ELSE 3 END,
-      CASE condition WHEN 'burner' THEN 0 WHEN 'training' THEN 1 ELSE 2 END, id`)
-    .all(vehicleId, vehicleId, vehicleId);
-  if (!candidates.length) throw httpError(409, 'Keine aktiven Driftreifen mehr im Bestand!');
-  const picked = candidates.slice(0, count);
-  const ts = nowIso();
-  db.transaction(() => {
-    for (const t of picked) {
-      db.prepare("UPDATE tyres SET status = 'abgefahren', condition = 'burner', rim_id = NULL, burned_at = ?, notes = COALESCE(notes, '') || ? WHERE id = ?")
-        .run(ts, t.rim_id ? `[war auf Felge #${t.rim_id}]` : '', t.id);
-    }
-  })();
-  const remaining = db.prepare("SELECT COUNT(*) AS c FROM tyres WHERE status = 'aktiv' AND class = 'drift'").get().c;
-  res.json({ burned: picked.map((t) => ({ id: t.id, dimension: t.dimension, brand: t.brand, rim_id: t.rim_id })), remaining, partial: picked.length < count, hub: hub(vehicleId) });
-});
-
+/* Altreifen zurück in den aktiven Bestand (Altreifen-Reiter im Reifenlager) */
 router.post('/tyres/unburn', (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
   const rims = (req.body.rims && typeof req.body.rims === 'object') ? req.body.rims : {};

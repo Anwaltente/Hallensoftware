@@ -17,6 +17,7 @@ const TYPES = {
   task_done: ['To-do erledigt', '#84cc16', 'check'],
   task_pause: ['Nicht fertig', '#f97316', 'pause'],
   setup_change: ['Setup', '#f472b6', 'gauge'],
+  task_due: ['Fälligkeit', '#38bdf8', 'calendar'],
   task_assign: ['Zuweisung', '#38bdf8', 'users'],
   pdf_export: ['PDF-Export', '#94a3b8', 'file'],
   ui_click: ['Klick', '#475569', 'target'],

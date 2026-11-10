@@ -15,7 +15,7 @@
  *   js/admin.js      Admin-Konsole, Garage-Builder, Blueprint-Editor
  *   js/spotlight.js  Strg+K Suche
  *   v2:
- *   js/tyres.js      Drift-Tyre Hub (Reifen, Felgen, Kompletträder, -2 Burned)
+ *   js/tyres.js      Drift-Tyre Hub (Reifen, Felgen, Kompletträder)
  *   js/qr.js         QR-Encoder, Label-Druck, Scanner
  *   js/supplies.js   Chill-Ecke & Kühlschrank-Radar
  *   js/setup.js      Animiertes Drift-Setup-Sheet
@@ -48,13 +48,13 @@ import { $, $$, html, setHTML, icon, toast, toastError, haptic, chooseDialog, co
 import { HallMap } from './js/map.js';
 import { initAuth, showLogin, checkQuickChecks, logout } from './js/auth.js';
 import { initWhiteboard } from './js/whiteboard.js';
-import { openCockpit, renderFleetPanel, isDriftCar } from './js/cockpit.js';
+import { openCockpit, renderFleetPanel } from './js/cockpit.js';
 import { renderEventsPanel, openPacklist } from './js/events.js';
 import { renderLagerPanel, renderToolsPanel, openShelf } from './js/storage.js';
 import { initAdmin, openAdminConsole, renderMapTopBar } from './js/admin.js';
 import { initSpotlight, openSpotlight } from './js/spotlight.js';
 import { get } from './js/api.js';
-import { openTyreHub, burnTyres } from './js/tyres.js';
+import { openTyreHub } from './js/tyres.js';
 import { openScanner, handleScanText } from './js/qr.js';
 import { openFridge, initSupplyAlert, refreshSupplies } from './js/supplies.js';
 import { initTicker } from './js/ticker.js';
@@ -227,7 +227,6 @@ function renderSelectionBar(v) {
       <span class="dot" style="background:${statusInfo(v.status).color}"></span>
       <div class="text-sm leading-tight"><b class="text-white">${v.name}</b><div class="text-[11px] text-cyan-300">Zielplatz antippen</div></div>
       <button class="btn btn-sm btn-primary" data-sel="open">${icon('eye')} Cockpit</button>
-      ${isDriftCar(v) ? html`<button class="btn btn-sm burn-btn !px-2" data-sel="burn" title="2 Driftreifen abgefahren">${icon('flame', 'w-3.5 h-3.5')} -2</button>` : ''}
       <button class="btn-icon" data-sel="cancel">${icon('x')}</button>
     </div>`);
 }
@@ -427,7 +426,6 @@ function bindChrome() {
   }));
   on($('#selectionBar'), 'click', '[data-sel]', (_e, t) => {
     const id = app.map.selectedVehicleId;
-    if (t.dataset.sel === 'burn' && id) { burnTyres(id); return; }
     app.map.select(null);
     if (t.dataset.sel === 'open' && id) app.map.focusVehicle(id, () => openCockpit(id));
   });

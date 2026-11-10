@@ -77,8 +77,8 @@ function checkLift(taskId, patch) {
   }
   const from = patch.lift_from !== undefined ? patch.lift_from : cur.lift_from;
   const to = patch.lift_to !== undefined ? patch.lift_to : cur.lift_to;
-  if (!from || !to) throw httpError(400, 'Für die Hebebühne bitte Datum, Startzeit und Dauer angeben.');
-  if (to <= from) throw httpError(400, 'Das Ende der Bühnen-Reservierung muss nach dem Start liegen.');
+  if (!from || !to) throw httpError(400, 'Für die Hebebühne bitte Von- und Bis-Datum angeben.');
+  if (to <= from) throw httpError(400, 'Das Bis-Datum der Bühnen-Reservierung darf nicht vor dem Von-Datum liegen.');
 }
 /** Antwort mit Konflikt-Hinweis für die Bühne */
 const withLift = (row) => ({ ...row, lift_conflict: row.lift_slot !== null && row.lift_slot !== undefined ? lifts.hasConflict(row.id) : false });
@@ -119,6 +119,17 @@ router.put('/tasks/:id', (req, res) => {
     budget.syncTask(Number(req.params.id));
   })();
   res.json(withLift(mustGet('tasks', req.params.id)));
+});
+
+/** v5.5: Fälligkeit schnell ändern (Datumsfeld, +1 Tag, +1 Woche). Body { date: 'JJJJ-MM-TT' | null } */
+router.patch('/tasks/:id/due-date', (req, res) => {
+  const task = mustGet('tasks', req.params.id, 'Aufgabe');
+  const raw = req.body && req.body.date;
+  const date = raw === null || raw === '' ? null : dateOrNull(raw);
+  if (raw && !date) throw httpError(400, 'Ungültiges Datum.');
+  db.prepare('UPDATE tasks SET target_date = ? WHERE id = ?').run(date, task.id);
+  activity.mark(req, 'task_due', `Fälligkeit geändert: ${task.title} (${task.target_date || 'ohne'} → ${date || 'ohne'})`, { task_id: task.id, from: task.target_date, to: date }, { high: false });
+  res.json(withLift(db.prepare(`${TASK_SELECT} WHERE t.id = ?`).get(task.id)));
 });
 
 router.delete('/tasks/:id', (req, res) => {

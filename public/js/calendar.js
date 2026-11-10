@@ -1,18 +1,17 @@
 /**
- * v5.4: Kalender / Bühnen-Belegung (Reiter "Kalender")
- * Tag, Woche, Monat. Balken je Hebebühne: wer (Farbe der Person) macht was (Aufgabe / Auto) wie lange.
- * Überschneidungen auf derselben Bühne leuchten als "Bühnen-Konflikt!".
+ * v5.4/v5.5: Kalender / Bühnen-Belegung (Reiter "Kalender")
+ * Bühnen werden ganztägig reserviert (Von/Bis in der Aufgabe, keine Uhrzeiten). Tag, Woche, Monat zeigen Tages-Blöcke
+ * je Hebebühne ("Bühne 1 blockiert von Sa bis Mo durch E36 Diff-Tausch"). Überschneidung am selben Tag = "Bühnen-Konflikt!".
+ * Darunter die fälligen Aufgaben des Zeitraums, Fälligkeit direkt verschiebbar (+1 Tag, +1 Woche, Datum wählen).
  */
 import { app, canEdit } from './state.js';
 import { get } from './api.js';
 import { html, setHTML, on, icon, toastError } from './ui.js';
-import { openTaskPlan, liftList } from './workload.js';
+import { openTaskPlan, dueControl } from './workload.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-const DAY0 = 6;    // sichtbarer Bereich 06:00 bis 22:00
-const DAY1 = 22;
 const WD = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
 let view = 'week';
@@ -25,62 +24,64 @@ function range() {
   return [s, new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)];
 }
 
-const hourOf = (dt) => Number(dt.slice(11, 13)) + Number(dt.slice(14, 16)) / 60;
-/** Balken-Position (in %) für einen Tag, abgeschnitten auf den sichtbaren Bereich */
-function barPos(b, day) {
-  const s = b.lift_from.slice(0, 10) < day ? DAY0 : Math.max(DAY0, hourOf(b.lift_from));
-  const e = b.lift_to.slice(0, 10) > day ? DAY1 : Math.min(DAY1, hourOf(b.lift_to));
-  if (e <= s) return null;
-  return { left: ((s - DAY0) / (DAY1 - DAY0)) * 100, width: ((e - s) / (DAY1 - DAY0)) * 100 };
-}
-const onDay = (b, day) => b.lift_from.slice(0, 10) <= day && b.lift_to.slice(0, 10) >= day && !(b.lift_to.slice(0, 10) === day && b.lift_to.slice(11) === '00:00');
+const von = (b) => b.lift_from.slice(0, 10);
+const onDay = (b, day) => von(b) <= day && b.lift_bis >= day;
 const who = (b) => b.assigned_name || 'offen';
 const barColor = (b) => b.assigned_color || b.vehicle_color || '#64748b';
+const wd = (d) => `${WD[(new Date(`${d}T12:00`).getDay() + 6) % 7]} ${d.slice(8, 10)}.${d.slice(5, 7)}.`;
+const liftLabel = (b, lifts) => (b.lift_slot ? (lifts.find((x) => x.id === b.lift_slot) || {}).label || 'Bühne' : 'Beliebige Bühne');
+const what = (b) => [b.vehicle_name, b.title].filter(Boolean).join(' ');
+const blockText = (b, lifts) => `${liftLabel(b, lifts)} blockiert ${von(b) === b.lift_bis ? `am ${wd(von(b))}` : `von ${wd(von(b))} bis ${wd(b.lift_bis)}`} durch ${what(b)}`;
 
 function lanes(lifts, bookings) {
   const out = lifts.map((l) => ({ key: l.id, label: l.label || l.code, list: bookings.filter((b) => b.lift_slot === l.id) }));
   const any = bookings.filter((b) => !b.lift_slot);
-  if (any.length) out.push({ key: 0, label: 'Egal', list: any });
+  if (any.length) out.push({ key: 0, label: 'Beliebige Bühne', list: any });
   return out;
 }
 
-function bar(b, day, { slim = false } = {}) {
-  const p = barPos(b, day);
-  if (!p) return '';
-  return html`<button class="cal-bar ${b.conflict ? 'is-conflict' : ''} ${slim ? 'slim' : ''}" style="left:${p.left}%;width:${p.width}%;--c:${barColor(b)}" data-cal-task="${b.id}"
-    title="${b.lift_from.slice(11)}–${b.lift_to.slice(11)} · ${b.vehicle_name || 'Halle'} · ${b.title} · ${who(b)}${b.conflict ? ' · BÜHNEN-KONFLIKT!' : ''}">
-    ${slim ? '' : html`<span class="truncate">${b.lift_from.slice(11)} ${b.vehicle_name ? `${b.vehicle_name}: ` : ''}${b.title} · ${who(b)}</span>`}</button>`;
+/** Ganztägiger Block (füllt die Bahn des Tages) */
+function block(b, { slim = false } = {}) {
+  return html`<button class="cal-bar ${b.conflict ? 'is-conflict' : ''} ${slim ? 'slim' : ''}" style="left:0;width:100%;--c:${barColor(b)}" data-cal-task="${b.id}"
+    title="${what(b)} · ${who(b)}${b.conflict ? ' · BÜHNEN-KONFLIKT!' : ''}"><span class="truncate">${what(b)} · ${who(b)}</span></button>`;
 }
 
-function hourScale(offset = false) {
-  return html`<div class="cal-scale ${offset ? 'offset' : ''}">${[6, 9, 12, 15, 18, 21].map((h) => html`<span style="left:${((h - DAY0) / (DAY1 - DAY0)) * 100}%">${h}</span>`)}</div>`;
+function listBlock(data, bookings) {
+  return html`<div class="space-y-1.5 mt-4">${bookings.length ? bookings.map((b) => html`
+    <button class="card card-hover w-full text-left px-3 py-2 flex items-center gap-2 ${b.conflict ? '!border-rose-400/60' : ''}" data-cal-task="${b.id}">
+      <span class="w-2.5 h-8 rounded-full shrink-0" style="background:${barColor(b)}"></span>
+      <div class="flex-1 min-w-0 text-sm"><div class="text-white">${blockText(b, data.lifts)}</div>
+        <div class="text-[11px] text-slate-400">${who(b)}</div></div>
+      ${b.conflict ? html`<span class="chip !text-rose-200 !border-rose-400/60 !bg-rose-500/15">${icon('alert', 'w-3 h-3')} Konflikt</span>` : ''}
+    </button>`) : html`<p class="text-sm text-slate-500">Keine Bühne reserviert.</p>`}</div>`;
+}
+
+function dueBlock(tasks) {
+  if (!tasks.length) return '';
+  return html`<div class="mt-5"><h4 class="font-display text-xs tracking-[0.2em] text-slate-400 mb-2">FÄLLIGE AUFGABEN IM ZEITRAUM</h4>
+    <div class="space-y-1.5">${tasks.map((t) => html`
+      <div class="card px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <button class="text-left text-sm text-white hover:text-cyan-300 min-w-0 flex-1" data-cal-edit="${t.id}">${t.vehicle_name ? html`<b>${t.vehicle_name}</b> · ` : ''}${t.title}</button>
+        <span class="inline-flex flex-wrap items-center gap-1">${dueControl(t)}</span>
+      </div>`)}</div></div>`;
 }
 
 function dayView(data, day) {
-  const nowPct = data.now.slice(0, 10) === day ? ((hourOf(data.now) - DAY0) / (DAY1 - DAY0)) * 100 : null;
   const list = data.bookings.filter((b) => onDay(b, day));
   return html`
-    ${hourScale()}
     <div class="space-y-2">${lanes(data.lifts, list).map((l) => html`
       <div><div class="text-[11px] font-display font-bold tracking-wider text-cyan-300 mb-1">${l.label.toUpperCase()}</div>
-        <div class="cal-lane tall">${nowPct !== null && nowPct >= 0 && nowPct <= 100 ? html`<span class="cal-now" style="left:${nowPct}%"></span>` : ''}${l.list.map((b) => bar(b, day))}</div></div>`)}</div>
-    <div class="space-y-1.5 mt-4">${list.length ? list.map((b) => html`
-      <button class="card card-hover w-full text-left px-3 py-2 flex items-center gap-2 ${b.conflict ? '!border-rose-400/60' : ''}" data-cal-task="${b.id}">
-        <span class="w-2.5 h-8 rounded-full shrink-0" style="background:${barColor(b)}"></span>
-        <div class="flex-1 min-w-0 text-sm"><div class="text-white truncate">${b.vehicle_name ? html`<b>${b.vehicle_name}</b> · ` : ''}${b.title}</div>
-          <div class="text-[11px] text-slate-400">${b.lift_from.slice(11)}–${b.lift_to.slice(11)} · ${b.lift_slot ? (data.lifts.find((x) => x.id === b.lift_slot) || {}).label : 'Bühne egal'} · ${who(b)}</div></div>
-        ${b.conflict ? html`<span class="chip !text-rose-200 !border-rose-400/60 !bg-rose-500/15">${icon('alert', 'w-3 h-3')} Konflikt</span>` : ''}
-      </button>`) : html`<p class="text-sm text-slate-500">Keine Bühne reserviert.</p>`}</div>`;
+        <div class="cal-lane tall ${l.list.length > 1 ? 'multi' : ''}">${l.list.map((b) => block(b))}${l.list.length ? '' : html`<span class="absolute inset-0 grid place-items-center text-[11px] text-slate-500">frei</span>`}</div></div>`)}</div>`;
 }
 
 function weekView(data, start) {
-  return html`${hourScale(true)}<div class="space-y-1.5">${[0, 1, 2, 3, 4, 5, 6].map((i) => {
+  return html`<div class="space-y-1.5">${[0, 1, 2, 3, 4, 5, 6].map((i) => {
     const d = addDays(start, i);
     const day = ymd(d);
     const list = data.bookings.filter((b) => onDay(b, day));
     return html`<div class="flex items-stretch gap-2 ${day === data.now.slice(0, 10) ? 'cal-today' : ''}">
       <button class="w-10 shrink-0 text-left text-[11px] leading-tight text-slate-400 hover:text-white" data-cal-day="${day}"><b class="text-white">${WD[i]}</b><br>${pad(d.getDate())}.${pad(d.getMonth() + 1)}.</button>
-      <div class="flex-1 min-w-0 space-y-0.5">${lanes(data.lifts, list).map((l) => html`<div class="cal-lane" title="${l.label}">${l.list.map((b) => bar(b, day, { slim: true }))}</div>`)}</div>
+      <div class="flex-1 min-w-0 space-y-0.5">${lanes(data.lifts, list).map((l) => html`<div class="cal-lane mid ${l.list.length > 1 ? 'multi' : ''}" title="${l.label}">${l.list.map((b) => block(b))}</div>`)}</div>
     </div>`;
   })}</div>
   <p class="text-[10px] text-slate-500 mt-2">Je Tag eine Zeile pro Bühne (${data.lifts.map((l) => l.label || l.code).join(', ')}). Tag antippen für Details.</p>`;
@@ -105,8 +106,13 @@ function monthView(data, first) {
 export async function renderCalendarPanel(container) {
   const [s, e] = range();
   let data;
-  try { data = await get(`/lift-calendar?from=${ymd(s)}&to=${ymd(e)}`); } catch (err) { toastError(err); return; }
+  let tasks = [];
+  try {
+    [data, tasks] = await Promise.all([get(`/lift-calendar?from=${ymd(s)}&to=${ymd(e)}`), get('/tasks?status=open')]);
+  } catch (err) { toastError(err); return; }
   container._calData = data;
+  container._calTasks = tasks;
+  const due = tasks.filter((t) => t.target_date && t.target_date >= ymd(s) && t.target_date <= ymd(e)).sort((a, b) => a.target_date.localeCompare(b.target_date));
   const conflicts = data.bookings.filter((b) => b.conflict);
   const title = view === 'day' ? s.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })
     : view === 'week' ? `${s.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} – ${e.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}`
@@ -116,7 +122,6 @@ export async function renderCalendarPanel(container) {
     <div class="p-4 space-y-3">
       <div class="flex items-center justify-between gap-2">
         <div><h3 class="font-display font-bold tracking-wider text-white">Kalender / Bühnen-Belegung</h3><p class="text-xs text-slate-500">${data.lifts.length} Hebebühne${data.lifts.length === 1 ? '' : 'n'} · ${data.bookings.length} Reservierung${data.bookings.length === 1 ? '' : 'en'}</p></div>
-        ${canEdit() && data.lifts.length ? html`<button class="btn btn-sm btn-primary" data-cal-new>${icon('plus')} Reservieren</button>` : ''}
       </div>
       <div class="flex items-center gap-1.5">
         ${['day', 'week', 'month'].map((v) => html`<button class="chip chip-btn ${view === v ? 'on' : ''}" data-cal-view="${v}">${{ day: 'Tag', week: 'Woche', month: 'Monat' }[v]}</button>`)}
@@ -127,9 +132,11 @@ export async function renderCalendarPanel(container) {
       </div>
       <div class="text-sm font-semibold text-white">${title}</div>
       ${conflicts.length ? html`<div class="cal-alert">${icon('alert', 'w-4 h-4 shrink-0')}<div><b>Bühnen-Konflikt!</b> ${conflicts.length} Reservierung${conflicts.length === 1 ? '' : 'en'} überschneiden sich:
-        ${conflicts.map((b) => html`<button class="underline mr-1" data-cal-task="${b.id}">${b.vehicle_name || b.title} (${b.lift_from.slice(8, 10)}.${b.lift_from.slice(5, 7)}. ${b.lift_from.slice(11)})</button>`)}</div></div>` : ''}
+        ${conflicts.map((b) => html`<button class="underline mr-1" data-cal-task="${b.id}">${what(b)} (${von(b).slice(8, 10)}.${von(b).slice(5, 7)}.)</button>`)}</div></div>` : ''}
       ${!data.lifts.length ? html`<div class="card p-6 text-center text-slate-400 text-sm">Keine Hebebühne angelegt. Im Garage-Builder einen Stellplatz mit Art „Hebebühne“ anlegen.</div>`
-        : view === 'day' ? dayView(data, ymd(s)) : view === 'week' ? weekView(data, s) : monthView(data, s)}
+        : html`${view === 'day' ? dayView(data, ymd(s)) : view === 'week' ? weekView(data, s) : monthView(data, s)}
+          ${listBlock(data, data.bookings)}`}
+      ${dueBlock(due)}
     </div>`);
 
   if (container.dataset.boundCal) return;
@@ -143,17 +150,11 @@ export async function renderCalendarPanel(container) {
     again();
   });
   on(container, 'click', '[data-cal-day]', (_e, b) => { anchor = new Date(`${b.dataset.calDay}T12:00`); view = 'day'; again(); });
-  on(container, 'click', '[data-cal-new]', () => {
-    const day = view === 'day' ? ymd(anchor) : ymd(new Date());
-    openTaskPlan({ lift_slot: (liftList()[0] || {}).id, lift_from: `${day}T09:00`, lift_to: `${day}T11:00`, estimated_hours: 2 }, again, { pickVehicle: true });
-  });
-  on(container, 'click', '[data-cal-task]', async (_e, b) => {
-    try {
-      const t = (await get('/tasks?status=open')).find((x) => x.id === Number(b.dataset.calTask));
-      if (!t) return;
-      if (canEdit()) openTaskPlan(t, again);
-      else if (t.vehicle_id) app.navigate({ kind: 'vehicle', vehicleId: t.vehicle_id, tab: 'tasks' });
-    } catch (err) { toastError(err); }
+  on(container, 'click', '[data-cal-task], [data-cal-edit]', (_e, b) => {
+    const t = container._calTasks.find((x) => x.id === Number(b.dataset.calTask || b.dataset.calEdit));
+    if (!t) return;
+    if (canEdit()) openTaskPlan(t, again);
+    else if (t.vehicle_id) app.navigate({ kind: 'vehicle', vehicleId: t.vehicle_id, tab: 'tasks' });
   });
 }
 

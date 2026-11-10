@@ -374,27 +374,8 @@ mark { background: rgba(250,204,21,0.35); color: #fff; border-radius: 2px; paddi
 /* =====================================================================
    v2 · Reifenlager
    ===================================================================== */
-.burn-btn {
-  background: linear-gradient(180deg, #f97316, #c2410c); color: #fff7ed; border-color: #fdba74;
-  text-shadow: 0 1px 0 rgba(0,0,0,.4); box-shadow: 0 0 16px rgba(249,115,22,.35);
-}
-.burn-btn:hover { background: linear-gradient(180deg, #fb923c, #ea580c); }
 .tyre-svg { filter: drop-shadow(0 3px 4px rgba(0,0,0,.5)); }
 .tyre-svg.worn { opacity: .7; }
-.burn-fx { position: fixed; inset: 0; z-index: 80; pointer-events: none; display: grid; place-items: center; }
-.burn-text {
-  font-family: var(--font-display); font-weight: 700; font-size: clamp(2.5rem, 9vw, 6rem); letter-spacing: .08em; color: #fff7ed;
-  text-shadow: 0 0 20px #f97316, 0 0 50px #ea580c; animation: burnText 1.6s ease-out forwards;
-}
-@keyframes burnText { 0% { transform: scale(.6) skewX(-10deg); opacity: 0; } 20% { transform: scale(1.08) skewX(-10deg); opacity: 1; } 70% { opacity: 1; } 100% { transform: scale(1.2) translateY(-30px) skewX(-10deg); opacity: 0; } }
-.burn-smoke { position: absolute; left: 50%; top: 58%; }
-.burn-smoke span {
-  position: absolute; width: 140px; height: 140px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(203,213,225,.55), rgba(148,163,184,.15) 60%, transparent 70%);
-  left: calc((var(--i) - 4) * 50px - 70px); top: -70px; filter: blur(6px);
-  animation: smoke 1.6s ease-out forwards; animation-delay: calc(var(--i) * 40ms);
-}
-@keyframes smoke { from { transform: scale(.2) translateY(0); opacity: .9; } to { transform: scale(2.4) translateY(-140px); opacity: 0; } }
 
 /* =====================================================================
    v2 · Kühlschrank-Radar
@@ -789,6 +770,10 @@ html.pwa input, html.pwa textarea, html.pwa [contenteditable] { -webkit-user-sel
 .cal-scale.offset { margin-left: 3rem; }
 .cal-lane { position: relative; height: 12px; border-radius: 4px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); }
 .cal-lane.tall { height: 34px; }
+.cal-lane.mid { height: 22px; }
+/* mehrere Blöcke am selben Tag auf einer Bühne (Konflikt): nebeneinander statt übereinander */
+.cal-lane.multi { display: flex; gap: 2px; }
+.cal-lane.multi .cal-bar { position: relative; inset: auto; flex: 1 1 0; min-width: 0; height: 100%; }
 .cal-bar { position: absolute; top: 2px; bottom: 2px; min-width: 6px; border-radius: 4px; padding: 0 6px; display: flex; align-items: center;
   background: color-mix(in srgb, var(--c) 35%, transparent); border: 1px solid var(--c); color: #fff; font-size: 11px; overflow: hidden; text-align: left; }
 .cal-bar.slim { top: 1px; bottom: 1px; padding: 0; }
